@@ -3,163 +3,19 @@ import pandas as pd
 import sqlite3
 import re
 import io
-import os
 from collections import Counter
 
 # ============================================================
-# PAGE CONFIG
+# CONFIGURATION
 # ============================================================
 
 st.set_page_config(
-    page_title="OBE Attainment Tracker",
+    page_title="OBE Alignment Checker",
     page_icon="🎓",
     layout="wide"
 )
 
-# ============================================================
-# DATABASE
-# ============================================================
-
 DB_FILE = "obe_tracker.db"
-
-
-def get_connection():
-    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-conn = get_connection()
-
-
-def execute(query, params=()):
-    cur = conn.cursor()
-    cur.execute(query, params)
-    conn.commit()
-    return cur
-
-
-def fetchall(query, params=()):
-    cur = conn.cursor()
-    cur.execute(query, params)
-    return cur.fetchall()
-
-
-def fetchone(query, params=()):
-    cur = conn.cursor()
-    cur.execute(query, params)
-    return cur.fetchone()
-
-
-# ============================================================
-# DATABASE INITIALIZATION
-# ============================================================
-
-def initialize_database():
-
-    execute("""
-        CREATE TABLE IF NOT EXISTS courses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            code TEXT,
-            name TEXT NOT NULL,
-            semester TEXT,
-            section TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    execute("""
-        CREATE TABLE IF NOT EXISTS clos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            course_id INTEGER NOT NULL,
-            code TEXT NOT NULL,
-            description TEXT NOT NULL,
-            target REAL DEFAULT 60,
-            FOREIGN KEY(course_id) REFERENCES courses(id)
-        )
-    """)
-
-    execute("""
-        CREATE TABLE IF NOT EXISTS plos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            course_id INTEGER NOT NULL,
-            code TEXT NOT NULL,
-            description TEXT NOT NULL,
-            target REAL DEFAULT 60,
-            FOREIGN KEY(course_id) REFERENCES courses(id)
-        )
-    """)
-
-    execute("""
-        CREATE TABLE IF NOT EXISTS mappings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            course_id INTEGER NOT NULL,
-            clo_id INTEGER NOT NULL,
-            plo_id INTEGER NOT NULL,
-            weight REAL DEFAULT 1,
-            FOREIGN KEY(course_id) REFERENCES courses(id),
-            FOREIGN KEY(clo_id) REFERENCES clos(id),
-            FOREIGN KEY(plo_id) REFERENCES plos(id)
-        )
-    """)
-
-    execute("""
-        CREATE TABLE IF NOT EXISTS assessments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            course_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            total_marks REAL NOT NULL,
-            intended_bloom TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(course_id) REFERENCES courses(id)
-        )
-    """)
-
-    execute("""
-        CREATE TABLE IF NOT EXISTS questions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            assessment_id INTEGER NOT NULL,
-            question_no TEXT NOT NULL,
-            question_text TEXT,
-            max_marks REAL NOT NULL,
-            clo_id INTEGER,
-            plo_id INTEGER,
-            bloom_level TEXT,
-            detected_bloom TEXT,
-            FOREIGN KEY(assessment_id) REFERENCES assessments(id),
-            FOREIGN KEY(clo_id) REFERENCES clos(id),
-            FOREIGN KEY(plo_id) REFERENCES plos(id)
-        )
-    """)
-
-    execute("""
-        CREATE TABLE IF NOT EXISTS students (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            course_id INTEGER NOT NULL,
-            student_id TEXT NOT NULL,
-            student_name TEXT,
-            FOREIGN KEY(course_id) REFERENCES courses(id)
-        )
-    """)
-
-    execute("""
-        CREATE TABLE IF NOT EXISTS marks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id INTEGER NOT NULL,
-            question_id INTEGER NOT NULL,
-            marks REAL DEFAULT 0,
-            FOREIGN KEY(student_id) REFERENCES students(id),
-            FOREIGN KEY(question_id) REFERENCES questions(id)
-        )
-    """)
-
-
-initialize_database()
-
-
-# ============================================================
-# BLOOM TAXONOMY
-# ============================================================
 
 BLOOM_LEVELS = [
     "Remember",
@@ -170,84 +26,190 @@ BLOOM_LEVELS = [
     "Create"
 ]
 
+BLOOM_RANK = {
+    "Remember": 1,
+    "Understand": 2,
+    "Apply": 3,
+    "Analyze": 4,
+    "Evaluate": 5,
+    "Create": 6
+}
+
 BLOOM_VERBS = {
     "Remember": [
-        "define",
-        "list",
-        "name",
-        "identify",
-        "state",
-        "recall",
-        "recognize",
-        "mention",
-        "label",
-        "select"
+        "define", "list", "name", "identify", "state",
+        "recall", "recognize", "mention", "label", "select"
     ],
     "Understand": [
-        "explain",
-        "summarize",
-        "interpret",
-        "discuss",
-        "classify",
-        "describe",
-        "outline",
-        "paraphrase",
+        "explain", "summarize", "interpret", "discuss",
+        "classify", "describe", "outline", "paraphrase",
         "illustrate"
     ],
     "Apply": [
-        "apply",
-        "use",
-        "demonstrate",
-        "solve",
-        "calculate",
-        "implement",
-        "execute",
-        "perform"
+        "apply", "use", "demonstrate", "solve", "calculate",
+        "implement", "execute", "perform"
     ],
     "Analyze": [
-        "analyze",
-        "analyse",
-        "examine",
-        "compare",
-        "contrast",
-        "differentiate",
-        "distinguish",
-        "investigate",
-        "categorize"
+        "analyze", "analyse", "examine", "compare",
+        "contrast", "differentiate", "distinguish",
+        "investigate", "categorize", "break down"
     ],
     "Evaluate": [
-        "evaluate",
-        "justify",
-        "critique",
-        "assess",
-        "judge",
-        "defend",
-        "appraise",
-        "recommend",
-        "argue"
+        "evaluate", "justify", "critique", "assess",
+        "judge", "defend", "appraise", "recommend",
+        "argue", "validate"
     ],
     "Create": [
-        "create",
-        "design",
-        "develop",
-        "formulate",
-        "produce",
-        "compose",
-        "plan",
-        "propose",
-        "generate"
+        "create", "design", "develop", "formulate",
+        "produce", "compose", "plan", "propose",
+        "generate", "construct"
     ]
 }
 
+STOPWORDS = {
+    "the", "a", "an", "and", "or", "of", "to", "in",
+    "on", "for", "with", "by", "from", "at", "as",
+    "is", "are", "was", "were", "be", "been", "being",
+    "this", "that", "these", "those", "it", "its",
+    "their", "they", "them", "you", "your", "we",
+    "our", "which", "what", "how", "why", "when",
+    "where", "who", "can", "could", "should", "would",
+    "will", "may", "might", "do", "does", "did",
+    "into", "than", "then", "also", "given"
+}
 
 # ============================================================
-# TEXT FUNCTIONS
+# DATABASE
+# ============================================================
+
+def get_conn():
+    conn = sqlite3.connect(
+        DB_FILE,
+        check_same_thread=False
+    )
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+conn = get_conn()
+
+
+def execute(query, params=()):
+    cur = conn.cursor()
+    cur.execute(query, params)
+    conn.commit()
+    return cur
+
+
+def fetchone(query, params=()):
+    cur = conn.cursor()
+    cur.execute(query, params)
+    return cur.fetchone()
+
+
+def fetchall(query, params=()):
+    cur = conn.cursor()
+    cur.execute(query, params)
+    return cur.fetchall()
+
+
+def init_db():
+
+    execute("""
+        CREATE TABLE IF NOT EXISTS courses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            code TEXT,
+            name TEXT NOT NULL,
+            semester TEXT,
+            section TEXT
+        )
+    """)
+
+    execute("""
+        CREATE TABLE IF NOT EXISTS clos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            course_id INTEGER,
+            code TEXT,
+            description TEXT,
+            target REAL DEFAULT 60
+        )
+    """)
+
+    execute("""
+        CREATE TABLE IF NOT EXISTS plos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            course_id INTEGER,
+            code TEXT,
+            description TEXT,
+            target REAL DEFAULT 60
+        )
+    """)
+
+    execute("""
+        CREATE TABLE IF NOT EXISTS mappings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            course_id INTEGER,
+            clo_id INTEGER,
+            plo_id INTEGER,
+            weight REAL DEFAULT 1
+        )
+    """)
+
+    execute("""
+        CREATE TABLE IF NOT EXISTS assessments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            course_id INTEGER,
+            name TEXT,
+            total_marks REAL,
+            intended_bloom TEXT
+        )
+    """)
+
+    execute("""
+        CREATE TABLE IF NOT EXISTS questions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            assessment_id INTEGER,
+            question_no TEXT,
+            question_text TEXT,
+            max_marks REAL,
+            clo_id INTEGER,
+            plo_id INTEGER,
+            intended_bloom TEXT,
+            detected_bloom TEXT,
+            bloom_score REAL,
+            clo_score REAL,
+            plo_score REAL
+        )
+    """)
+
+    execute("""
+        CREATE TABLE IF NOT EXISTS students (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            course_id INTEGER,
+            student_id TEXT,
+            student_name TEXT
+        )
+    """)
+
+    execute("""
+        CREATE TABLE IF NOT EXISTS marks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER,
+            question_id INTEGER,
+            marks REAL
+        )
+    """)
+
+
+init_db()
+
+# ============================================================
+# TEXT PROCESSING
 # ============================================================
 
 def clean_text(text):
     text = str(text or "")
     text = text.replace("\x00", " ")
-    text = text.replace("\r", "\n")
     text = text.replace("–", "-")
     text = text.replace("—", "-")
     text = re.sub(r"[ \t]+", " ", text)
@@ -255,9 +217,206 @@ def clean_text(text):
     return text.strip()
 
 
-def detect_bloom(text):
-
+def words(text):
     text = clean_text(text).lower()
+    return [
+        w for w in re.findall(r"[a-zA-Z]{3,}", text)
+        if w not in STOPWORDS
+    ]
+
+
+def normalize_word(word):
+
+    word = word.lower().strip()
+
+    replacements = {
+        "analyzing": "analyze",
+        "analysing": "analyze",
+        "analyzed": "analyze",
+        "analysed": "analyze",
+        "analyses": "analyze",
+        "explaining": "explain",
+        "explained": "explain",
+        "applying": "apply",
+        "applied": "apply",
+        "evaluating": "evaluate",
+        "evaluated": "evaluate",
+        "creating": "create",
+        "created": "create",
+        "developing": "develop",
+        "developed": "develop",
+        "comparing": "compare",
+        "compared": "compare",
+        "identifying": "identify",
+        "identified": "identify"
+    }
+
+    if word in replacements:
+        return replacements[word]
+
+    if word.endswith("ing") and len(word) > 5:
+        word = word[:-3]
+
+    if word.endswith("ed") and len(word) > 5:
+        word = word[:-2]
+
+    return word
+
+
+def normalized_words(text):
+
+    return [
+        normalize_word(w)
+        for w in words(text)
+    ]
+
+
+# ============================================================
+# CONCEPT EXPANSION
+# ============================================================
+
+CONCEPT_GROUPS = {
+
+    "analyze": {
+        "analyze", "analyse", "examine", "investigate",
+        "differentiate", "distinguish", "compare",
+        "contrast", "interpret", "break", "structure",
+        "relationship", "pattern", "cause", "effect"
+    },
+
+    "evaluate": {
+        "evaluate", "assess", "judge", "critique",
+        "justify", "defend", "appraise", "recommend",
+        "evidence", "validity", "argument", "opinion"
+    },
+
+    "communication": {
+        "communication", "communicate", "write", "writing",
+        "speak", "speaking", "present", "presentation",
+        "explain", "express", "language", "audience",
+        "message", "argument", "discussion"
+    },
+
+    "critical_thinking": {
+        "critical", "thinking", "analyze", "analyse",
+        "evaluate", "evidence", "reason", "reasoning",
+        "argument", "infer", "inference", "compare",
+        "distinguish", "justify", "critique"
+    },
+
+    "problem_solving": {
+        "problem", "solve", "solution", "apply",
+        "calculate", "design", "develop", "strategy",
+        "method", "decision", "implement", "formulate"
+    },
+
+    "reading": {
+        "read", "reading", "text", "passage", "main",
+        "idea", "purpose", "tone", "pattern",
+        "organization", "author", "meaning",
+        "comprehension", "interpret"
+    },
+
+    "writing": {
+        "write", "writing", "essay", "paragraph",
+        "compose", "draft", "revise", "organize",
+        "argument", "thesis", "sentence", "academic"
+    }
+}
+
+
+def expanded_concepts(text):
+
+    result = set(
+        normalized_words(text)
+    )
+
+    for group, terms in CONCEPT_GROUPS.items():
+
+        if result.intersection(
+            {normalize_word(x) for x in terms}
+        ):
+
+            result.update(
+                normalize_word(x)
+                for x in terms
+            )
+
+    return result
+
+
+# ============================================================
+# OUTCOME MATCHING
+# ============================================================
+
+def outcome_similarity(question, outcome):
+
+    q = expanded_concepts(question)
+    o = expanded_concepts(outcome)
+
+    if not q or not o:
+        return 0.0, []
+
+    overlap = q.intersection(o)
+
+    if not overlap:
+        return 0.0, []
+
+    # Dice-style score
+    score = (
+        2 * len(overlap)
+        /
+        (len(q) + len(o))
+    ) * 100
+
+    # Give additional weight to direct wording
+    direct_q = set(normalized_words(question))
+    direct_o = set(normalized_words(outcome))
+
+    direct_overlap = direct_q.intersection(
+        direct_o
+    )
+
+    if direct_overlap:
+        score += min(
+            20,
+            len(direct_overlap) * 5
+        )
+
+    score = min(
+        100,
+        round(score, 1)
+    )
+
+    return score, sorted(
+        overlap
+    )
+
+
+def classify_alignment(score):
+
+    if score >= 60:
+        return "Strong Alignment"
+
+    if score >= 35:
+        return "Good Alignment"
+
+    if score >= 20:
+        return "Partial Alignment"
+
+    if score > 0:
+        return "Weak Alignment"
+
+    return "Needs Review"
+
+
+# ============================================================
+# BLOOM DETECTION
+# ============================================================
+
+def detect_bloom(question):
+
+    q = clean_text(question).lower()
 
     scores = {
         level: 0
@@ -266,80 +425,123 @@ def detect_bloom(text):
 
     evidence = []
 
+    # Examine first part of question more heavily.
+    command_part = q[:300]
+
     for level, verbs in BLOOM_VERBS.items():
 
         for verb in verbs:
 
             if re.search(
                 r"\b" + re.escape(verb) + r"\b",
-                text
+                command_part
             ):
-                scores[level] += 1
-                evidence.append(verb)
 
-    if "why" in text:
-        scores["Analyze"] += 1
+                scores[level] += 3
+                evidence.append(
+                    (verb, level)
+                )
 
-    if "justify" in text:
-        scores["Evaluate"] += 2
+    if "why" in command_part:
+        scores["Analyze"] += 2
 
-    if "design" in text:
-        scores["Create"] += 2
+    if "how" in command_part:
+        scores["Understand"] += 1
+
+    if "compare and contrast" in command_part:
+        scores["Analyze"] += 4
+
+    if "justify" in command_part:
+        scores["Evaluate"] += 4
+
+    if "design" in command_part:
+        scores["Create"] += 4
 
     if max(scores.values()) == 0:
-        return "Needs Review", evidence
+
+        return {
+            "level": "Needs Review",
+            "evidence": []
+        }
 
     best = max(
         scores,
         key=scores.get
     )
 
-    return best, list(dict.fromkeys(evidence))
+    return {
+        "level": best,
+        "evidence": list(
+            dict.fromkeys(
+                x[0]
+                for x in evidence
+            )
+        )
+    }
+
+
+def bloom_alignment(intended, detected):
+
+    if detected == "Needs Review":
+        return 40.0, "Needs Review"
+
+    if intended == detected:
+        return 100.0, "Aligned"
+
+    difference = abs(
+        BLOOM_RANK[intended]
+        -
+        BLOOM_RANK[detected]
+    )
+
+    if difference == 1:
+        return 65.0, "Partially Aligned"
+
+    return 30.0, "Not Aligned"
 
 
 # ============================================================
 # FILE READING
 # ============================================================
 
-def read_pdf(uploaded_file):
+def read_pdf(file):
 
     try:
 
         from pypdf import PdfReader
 
-        uploaded_file.seek(0)
+        file.seek(0)
 
-        reader = PdfReader(uploaded_file)
+        reader = PdfReader(file)
 
         pages = []
 
         for page in reader.pages:
 
-            try:
-                text = page.extract_text() or ""
-            except Exception:
-                text = ""
+            text = page.extract_text() or ""
 
             if text.strip():
                 pages.append(text)
 
-        result = "\n\n".join(pages)
+        result = clean_text(
+            "\n\n".join(pages)
+        )
 
-        if result.strip():
-            return clean_text(result), "PDF text"
+        if result:
+            return result, "PDF text extraction"
 
     except Exception:
         pass
 
-    # OCR fallback
+    # OCR
     try:
 
         import pytesseract
         from pdf2image import convert_from_bytes
 
-        uploaded_file.seek(0)
+        file.seek(0)
 
-        pdf_bytes = uploaded_file.read()
+        pdf_bytes = file.read()
 
         images = convert_from_bytes(
             pdf_bytes,
@@ -358,130 +560,122 @@ def read_pdf(uploaded_file):
             if text.strip():
                 pages.append(text)
 
-        result = "\n\n".join(pages)
+        result = clean_text(
+            "\n\n".join(pages)
+        )
 
-        if result.strip():
-            return clean_text(result), "PDF OCR"
+        return result, "PDF OCR"
 
     except Exception as e:
 
         return "", f"OCR failed: {e}"
 
-    return "", "No readable text found in PDF"
 
-
-def read_docx(uploaded_file):
+def read_docx(file):
 
     try:
 
         from docx import Document
 
-        document = Document(uploaded_file)
+        document = Document(file)
 
-        text = []
+        text = "\n".join(
+            p.text
+            for p in document.paragraphs
+            if p.text.strip()
+        )
 
-        for paragraph in document.paragraphs:
-
-            if paragraph.text.strip():
-                text.append(paragraph.text)
-
-        return clean_text("\n".join(text)), "DOCX"
+        return clean_text(text), "DOCX"
 
     except Exception as e:
 
         return "", str(e)
 
 
-def read_excel(uploaded_file):
+def read_txt(file):
+
+    raw = file.read()
+
+    for encoding in [
+        "utf-8",
+        "utf-16",
+        "latin-1"
+    ]:
+
+        try:
+
+            return clean_text(
+                raw.decode(encoding)
+            ), "TXT"
+
+        except Exception:
+            continue
+
+    return "", "Could not read TXT"
+
+
+def read_excel(file):
 
     try:
 
-        excel = pd.ExcelFile(uploaded_file)
+        sheets = pd.read_excel(
+            file,
+            sheet_name=None,
+            header=None
+        )
 
-        pieces = []
+        parts = []
 
-        for sheet in excel.sheet_names:
+        for name, df in sheets.items():
 
-            df = pd.read_excel(
-                uploaded_file,
-                sheet_name=sheet,
-                header=None
-            )
-
-            pieces.append(
-                f"Sheet: {sheet}"
+            parts.append(
+                f"Sheet {name}"
             )
 
             for row in df.astype(str).values:
 
                 line = " ".join(
-                    x for x in row
+                    x
+                    for x in row
                     if x.lower() != "nan"
                 )
 
                 if line.strip():
-                    pieces.append(line)
+                    parts.append(line)
 
-            uploaded_file.seek(0)
-
-        return clean_text("\n".join(pieces)), "Excel"
-
-    except Exception as e:
-
-        return "", str(e)
-
-
-def read_txt(uploaded_file):
-
-    try:
-
-        raw = uploaded_file.read()
-
-        for encoding in [
-            "utf-8",
-            "utf-16",
-            "latin-1"
-        ]:
-
-            try:
-                return clean_text(
-                    raw.decode(encoding)
-                ), "TXT"
-
-            except Exception:
-                continue
-
-        return "", "Could not decode TXT"
+        return clean_text(
+            "\n".join(parts)
+        ), "Excel"
 
     except Exception as e:
 
         return "", str(e)
 
 
-def read_uploaded_file(uploaded_file):
+def read_file(file):
 
-    name = uploaded_file.name.lower()
+    name = file.name.lower()
 
     if name.endswith(".pdf"):
-        return read_pdf(uploaded_file)
+        return read_pdf(file)
 
     if name.endswith(".docx"):
-        return read_docx(uploaded_file)
-
-    if name.endswith(".xlsx") or name.endswith(".xls"):
-        return read_excel(uploaded_file)
+        return read_docx(file)
 
     if name.endswith(".txt"):
-        return read_txt(uploaded_file)
+        return read_txt(file)
+
+    if name.endswith(".xlsx") or name.endswith(".xls"):
+        return read_excel(file)
 
     return "", "Unsupported file"
 
 
 # ============================================================
-# PARSE QUESTIONS
+# QUESTION EXTRACTION
 # ============================================================
 
-def parse_questions(text):
+def extract_questions(text):
 
     text = clean_text(text)
 
@@ -512,10 +706,10 @@ def parse_questions(text):
             match.group(2)
         )
 
-        if len(content) >= 5:
+        if len(content) >= 8:
 
             questions.append({
-                "question_no": f"Q{number}",
+                "number": f"Q{number}",
                 "text": content
             })
 
@@ -523,60 +717,48 @@ def parse_questions(text):
 
 
 # ============================================================
-# SIDEBAR
+# NAVIGATION
 # ============================================================
 
-st.sidebar.title("🎓 OBE Tracker")
+st.sidebar.title("🎓 OBE Alignment Checker")
 
 page = st.sidebar.radio(
-    "Navigation",
+    "Go to",
     [
         "🏠 Dashboard",
         "🏫 Course Setup",
-        "🎯 CLO & PLO Mapping",
+        "🎯 CLO/PLO Setup",
         "📝 Assessment Setup",
-        "📄 Quiz Analysis",
+        "🔍 OBE Analysis",
         "👥 Student Marks",
-        "📊 CLO Attainment",
-        "📊 PLO Attainment",
-        "🧠 Bloom Attainment",
+        "📊 Attainment Dashboard",
         "👤 Student Performance",
-        "📑 Reports"
+        "📥 Reports"
     ]
 )
-
-
-# ============================================================
-# COURSE SELECTION
-# ============================================================
 
 courses = fetchall(
     "SELECT * FROM courses ORDER BY id DESC"
 )
 
-course_options = {
-    f"{row['code']} - {row['name']} - {row['section']}": row["id"]
-    for row in courses
+course_dict = {
+    f"{c['code']} - {c['name']} - {c['section']}":
+    c["id"]
+    for c in courses
 }
 
 selected_course_id = None
 
-if course_options:
+if course_dict:
 
-    selected_course_label = st.sidebar.selectbox(
-        "Current Course",
-        list(course_options.keys())
+    selected_label = st.sidebar.selectbox(
+        "Active Course",
+        list(course_dict.keys())
     )
 
-    selected_course_id = course_options[
-        selected_course_label
+    selected_course_id = course_dict[
+        selected_label
     ]
-
-else:
-
-    st.sidebar.warning(
-        "Please create a course first."
-    )
 
 
 # ============================================================
@@ -585,17 +767,12 @@ else:
 
 if page == "🏠 Dashboard":
 
-    st.title("🎓 OBE Attainment Dashboard")
-
-    st.write(
-        "Manage courses, CLOs, PLOs, assessments, "
-        "student marks and attainment."
-    )
+    st.title("🎓 OBE Alignment & Attainment Dashboard")
 
     if not selected_course_id:
 
         st.info(
-            "Start by creating a course under Course Setup."
+            "Create a course first from Course Setup."
         )
 
     else:
@@ -606,62 +783,47 @@ if page == "🏠 Dashboard":
         )
 
         clo_count = fetchone(
-            "SELECT COUNT(*) AS c FROM clos WHERE course_id=?",
+            "SELECT COUNT(*) c FROM clos WHERE course_id=?",
             (selected_course_id,)
         )["c"]
 
         plo_count = fetchone(
-            "SELECT COUNT(*) AS c FROM plos WHERE course_id=?",
+            "SELECT COUNT(*) c FROM plos WHERE course_id=?",
             (selected_course_id,)
         )["c"]
 
         assessment_count = fetchone(
-            "SELECT COUNT(*) AS c FROM assessments WHERE course_id=?",
+            "SELECT COUNT(*) c FROM assessments WHERE course_id=?",
             (selected_course_id,)
         )["c"]
 
         student_count = fetchone(
-            "SELECT COUNT(*) AS c FROM students WHERE course_id=?",
+            "SELECT COUNT(*) c FROM students WHERE course_id=?",
             (selected_course_id,)
         )["c"]
 
-        col1, col2, col3, col4 = st.columns(4)
-
-        col1.metric(
-            "CLOs",
-            clo_count
-        )
-
-        col2.metric(
-            "PLOs",
-            plo_count
-        )
-
-        col3.metric(
-            "Assessments",
-            assessment_count
-        )
-
-        col4.metric(
-            "Students",
-            student_count
-        )
-
-        st.divider()
-
         st.subheader(
-            f"Course: {course['code']} - {course['name']}"
+            f"{course['code']} - {course['name']}"
         )
 
         st.write(
-            f"Semester: {course['semester']}  |  "
-            f"Section: {course['section']}"
+            f"{course['semester']} | Section: "
+            f"{course['section']}"
         )
 
+        a, b, c, d = st.columns(4)
+
+        a.metric("CLOs", clo_count)
+        b.metric("PLOs", plo_count)
+        c.metric("Assessments", assessment_count)
+        d.metric("Students", student_count)
+
+        st.divider()
+
         st.info(
-            "Complete Course Setup, CLO/PLO Mapping, "
-            "Assessment Setup and Student Marks before "
-            "reviewing attainment."
+            "The active course is the central reference. "
+            "Its CLOs, PLOs, mappings and assessments are "
+            "used throughout the analysis and attainment reports."
         )
 
 
@@ -673,39 +835,31 @@ elif page == "🏫 Course Setup":
 
     st.title("🏫 Course Setup")
 
-    st.write(
-        "Create the course that will become the foundation "
-        "of all OBE attainment calculations."
-    )
-
     with st.form("course_form"):
 
         code = st.text_input(
-            "Course Code",
-            placeholder="e.g. ENG101"
+            "Course Code"
         )
 
         name = st.text_input(
-            "Course Name",
-            placeholder="e.g. English I"
+            "Course Name"
         )
 
         semester = st.text_input(
             "Semester",
-            placeholder="Fall 2026"
+            value="Fall 2026"
         )
 
         section = st.text_input(
-            "Section",
-            placeholder="BSBA-1E1"
+            "Section"
         )
 
-        submitted = st.form_submit_button(
-            "➕ Create Course",
+        save = st.form_submit_button(
+            "Create Course",
             use_container_width=True
         )
 
-        if submitted:
+        if save:
 
             if not name.strip():
 
@@ -718,8 +872,8 @@ elif page == "🏫 Course Setup":
                 execute(
                     """
                     INSERT INTO courses
-                    (code, name, semester, section)
-                    VALUES (?, ?, ?, ?)
+                    (code,name,semester,section)
+                    VALUES (?,?,?,?)
                     """,
                     (
                         code.strip(),
@@ -737,36 +891,41 @@ elif page == "🏫 Course Setup":
 
     st.divider()
 
-    st.subheader(
-        "Existing Courses"
-    )
-
-    courses_df = pd.read_sql_query(
-        "SELECT id, code, name, semester, section FROM courses ORDER BY id DESC",
+    existing = pd.read_sql_query(
+        """
+        SELECT
+            id,
+            code,
+            name,
+            semester,
+            section
+        FROM courses
+        ORDER BY id DESC
+        """,
         conn
     )
 
-    if not courses_df.empty:
+    if not existing.empty:
 
         st.dataframe(
-            courses_df,
+            existing,
             use_container_width=True,
             hide_index=True
         )
 
 
 # ============================================================
-# CLO/PLO MAPPING
+# CLO/PLO SETUP
 # ============================================================
 
-elif page == "🎯 CLO & PLO Mapping":
+elif page == "🎯 CLO/PLO Setup":
 
     st.title("🎯 CLO & PLO Setup")
 
     if not selected_course_id:
 
         st.warning(
-            "Create and select a course first."
+            "Create a course first."
         )
         st.stop()
 
@@ -776,67 +935,58 @@ elif page == "🎯 CLO & PLO Mapping":
     )
 
     st.subheader(
-        f"{course['code']} - {course['name']}"
+        f"Course: {course['code']} - {course['name']}"
     )
 
-    # --------------------------------------------------------
-    # CLO
-    # --------------------------------------------------------
+    # ---------------- CLO ----------------
 
     st.header("Course Learning Outcomes")
 
-    with st.form("clo_form"):
+    with st.form("add_clo"):
 
-        clo_code = st.text_input(
+        code = st.text_input(
             "CLO Code",
             placeholder="CLO1"
         )
 
-        clo_description = st.text_area(
-            "CLO Description",
-            placeholder="Analyze patterns of organization in academic texts."
+        description = st.text_area(
+            "CLO Description"
         )
 
-        clo_target = st.number_input(
-            "CLO Attainment Target (%)",
-            min_value=0.0,
-            max_value=100.0,
-            value=60.0
+        target = st.number_input(
+            "Target Attainment %",
+            0.0,
+            100.0,
+            60.0
         )
 
-        add_clo = st.form_submit_button(
+        save_clo = st.form_submit_button(
             "Add CLO"
         )
 
-        if add_clo:
+        if save_clo:
 
-            if clo_code and clo_description:
+            if code and description:
 
                 execute(
                     """
                     INSERT INTO clos
-                    (course_id, code, description, target)
-                    VALUES (?, ?, ?, ?)
+                    (course_id,code,description,target)
+                    VALUES (?,?,?,?)
                     """,
                     (
                         selected_course_id,
-                        clo_code.upper().strip(),
-                        clo_description.strip(),
-                        clo_target
+                        code.upper().strip(),
+                        description.strip(),
+                        target
                     )
                 )
 
                 st.success(
-                    f"{clo_code} added."
+                    f"{code} saved."
                 )
 
                 st.rerun()
-
-            else:
-
-                st.error(
-                    "Enter both CLO code and description."
-                )
 
     clos = fetchall(
         "SELECT * FROM clos WHERE course_id=?",
@@ -854,64 +1004,55 @@ elif page == "🎯 CLO & PLO Mapping":
             hide_index=True
         )
 
-    # --------------------------------------------------------
-    # PLO
-    # --------------------------------------------------------
+    # ---------------- PLO ----------------
 
     st.header("Program Learning Outcomes")
 
-    with st.form("plo_form"):
+    with st.form("add_plo"):
 
-        plo_code = st.text_input(
+        code = st.text_input(
             "PLO Code",
             placeholder="PLO1"
         )
 
-        plo_description = st.text_area(
-            "PLO Description",
-            placeholder="Demonstrate effective communication skills."
+        description = st.text_area(
+            "PLO Description"
         )
 
-        plo_target = st.number_input(
-            "PLO Attainment Target (%)",
-            min_value=0.0,
-            max_value=100.0,
-            value=60.0
+        target = st.number_input(
+            "PLO Target Attainment %",
+            0.0,
+            100.0,
+            60.0
         )
 
-        add_plo = st.form_submit_button(
+        save_plo = st.form_submit_button(
             "Add PLO"
         )
 
-        if add_plo:
+        if save_plo:
 
-            if plo_code and plo_description:
+            if code and description:
 
                 execute(
                     """
                     INSERT INTO plos
-                    (course_id, code, description, target)
-                    VALUES (?, ?, ?, ?)
+                    (course_id,code,description,target)
+                    VALUES (?,?,?,?)
                     """,
                     (
                         selected_course_id,
-                        plo_code.upper().strip(),
-                        plo_description.strip(),
-                        plo_target
+                        code.upper().strip(),
+                        description.strip(),
+                        target
                     )
                 )
 
                 st.success(
-                    f"{plo_code} added."
+                    f"{code} saved."
                 )
 
                 st.rerun()
-
-            else:
-
-                st.error(
-                    "Enter both PLO code and description."
-                )
 
     plos = fetchall(
         "SELECT * FROM plos WHERE course_id=?",
@@ -929,70 +1070,67 @@ elif page == "🎯 CLO & PLO Mapping":
             hide_index=True
         )
 
-    # --------------------------------------------------------
-    # MAPPING
-    # --------------------------------------------------------
+    # ---------------- MAPPING ----------------
 
     st.divider()
 
-    st.header(
-        "CLO → PLO Mapping"
-    )
+    st.header("CLO → PLO Mapping")
 
     if clos and plos:
 
-        clo_dict = {
-            f"{x['code']} - {x['description']}": x["id"]
+        clo_options = {
+            f"{x['code']} - {x['description']}":
+            x["id"]
             for x in clos
         }
 
-        plo_dict = {
-            f"{x['code']} - {x['description']}": x["id"]
+        plo_options = {
+            f"{x['code']} - {x['description']}":
+            x["id"]
             for x in plos
         }
 
-        with st.form("mapping_form"):
+        with st.form("mapping"):
 
-            selected_clo = st.selectbox(
-                "Select CLO",
-                list(clo_dict.keys())
+            clo = st.selectbox(
+                "CLO",
+                list(clo_options.keys())
             )
 
-            selected_plo = st.selectbox(
-                "Select PLO",
-                list(plo_dict.keys())
+            plo = st.selectbox(
+                "PLO",
+                list(plo_options.keys())
             )
 
             weight = st.number_input(
                 "Mapping Weight",
-                min_value=0.0,
-                max_value=1.0,
-                value=1.0,
-                step=0.1
+                0.0,
+                1.0,
+                1.0
             )
 
-            add_mapping = st.form_submit_button(
-                "Add Mapping"
+            save_mapping = st.form_submit_button(
+                "Save Mapping"
             )
 
-            if add_mapping:
+            if save_mapping:
 
                 execute(
                     """
                     INSERT INTO mappings
-                    (course_id, clo_id, plo_id, weight)
-                    VALUES (?, ?, ?, ?)
+                    (course_id,clo_id,plo_id,weight)
+                    VALUES (?,?,?,?)
                     """,
                     (
                         selected_course_id,
-                        clo_dict[selected_clo],
-                        plo_dict[selected_plo],
+                        clo_options[clo],
+                        plo_options[plo],
                         weight
                     )
                 )
 
                 st.success(
-                    "CLO-PLO mapping saved."
+                    "Mapping saved."
                 )
 
                 st.rerun()
@@ -1000,13 +1138,12 @@ elif page == "🎯 CLO & PLO Mapping":
         mappings = fetchall(
             """
             SELECT
-                m.id,
-                c.code AS CLO,
-                p.code AS PLO,
+                c.code CLO,
+                p.code PLO,
                 m.weight
             FROM mappings m
-            JOIN clos c ON m.clo_id=c.id
-            JOIN plos p ON m.plo_id=p.id
+            JOIN clos c ON c.id=m.clo_id
+            JOIN plos p ON p.id=m.plo_id
             WHERE m.course_id=?
             """,
             (selected_course_id,)
@@ -1022,12 +1159,6 @@ elif page == "🎯 CLO & PLO Mapping":
                 use_container_width=True,
                 hide_index=True
             )
-
-    else:
-
-        st.info(
-            "Add CLOs and PLOs before creating mappings."
-        )
 
 
 # ============================================================
@@ -1045,70 +1176,51 @@ elif page == "📝 Assessment Setup":
         )
         st.stop()
 
-    clos = fetchall(
-        "SELECT * FROM clos WHERE course_id=?",
-        (selected_course_id,)
-    )
+    with st.form("assessment"):
 
-    plos = fetchall(
-        "SELECT * FROM plos WHERE course_id=?",
-        (selected_course_id,)
-    )
-
-    with st.form("assessment_form"):
-
-        assessment_name = st.text_input(
+        name = st.text_input(
             "Assessment Name",
             placeholder="Quiz 1"
         )
 
-        total_marks = st.number_input(
+        total = st.number_input(
             "Total Marks",
             min_value=1.0,
             value=10.0
         )
 
-        intended_bloom = st.selectbox(
+        bloom = st.selectbox(
             "Intended Bloom Level",
-            BLOOM_LEVELS
+            BLOOM_LEVELS,
+            index=3
         )
 
-        create_assessment = st.form_submit_button(
+        save = st.form_submit_button(
             "Create Assessment",
             use_container_width=True
         )
 
-        if create_assessment:
+        if save:
 
-            if not assessment_name.strip():
-
-                st.error(
-                    "Enter assessment name."
+            execute(
+                """
+                INSERT INTO assessments
+                (course_id,name,total_marks,intended_bloom)
+                VALUES (?,?,?,?)
+                """,
+                (
+                    selected_course_id,
+                    name.strip(),
+                    total,
+                    bloom
                 )
+            )
 
-            else:
+            st.success(
+                "Assessment created."
+            )
 
-                execute(
-                    """
-                    INSERT INTO assessments
-                    (course_id, name, total_marks, intended_bloom)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (
-                        selected_course_id,
-                        assessment_name.strip(),
-                        total_marks,
-                        intended_bloom
-                    )
-                )
-
-                st.success(
-                    "Assessment created."
-                )
-
-                st.rerun()
-
-    st.divider()
+            st.rerun()
 
     assessments = fetchall(
         """
@@ -1131,20 +1243,14 @@ elif page == "📝 Assessment Setup":
             hide_index=True
         )
 
-        st.info(
-            "After creating an assessment, go to Quiz Analysis "
-            "to upload the quiz and assign each detected question "
-            "to its CLO, PLO and Bloom level."
-        )
-
 
 # ============================================================
-# QUIZ ANALYSIS
+# OBE ANALYSIS
 # ============================================================
 
-elif page == "📄 Quiz Analysis":
+elif page == "🔍 OBE Analysis":
 
-    st.title("📄 Quiz Analysis & Question Mapping")
+    st.title("🔍 OBE Analysis Results")
 
     if not selected_course_id:
 
@@ -1165,23 +1271,24 @@ elif page == "📄 Quiz Analysis":
 
     if not assessments:
 
-        st.warning(
+        st.info(
             "Create an assessment first."
         )
         st.stop()
 
     assessment_dict = {
-        f"{x['name']} ({x['total_marks']} marks)": x["id"]
+        f"{x['name']} | {x['total_marks']} marks":
+        x["id"]
         for x in assessments
     }
 
-    selected_assessment_label = st.selectbox(
-        "Select Assessment",
+    selected_assessment = st.selectbox(
+        "Assessment",
         list(assessment_dict.keys())
     )
 
     assessment_id = assessment_dict[
-        selected_assessment_label
+        selected_assessment
     ]
 
     assessment = fetchone(
@@ -1189,9 +1296,65 @@ elif page == "📄 Quiz Analysis":
         (assessment_id,)
     )
 
-    st.info(
-        f"Intended Bloom Level: **{assessment['intended_bloom']}**"
+    # ========================================================
+    # SHOW COURSE SETUP DIRECTLY IN RESULTS
+    # ========================================================
+
+    course = fetchone(
+        "SELECT * FROM courses WHERE id=?",
+        (selected_course_id,)
     )
+
+    clos = fetchall(
+        "SELECT * FROM clos WHERE course_id=?",
+        (selected_course_id,)
+    )
+
+    plos = fetchall(
+        "SELECT * FROM plos WHERE course_id=?",
+        (selected_course_id,)
+    )
+
+    st.subheader("Course Setup Used for This Analysis")
+
+    c1, c2, c3 = st.columns(3)
+
+    c1.info(
+        f"**Course**\n\n"
+        f"{course['code']} - {course['name']}"
+    )
+
+    c2.info(
+        f"**Assessment**\n\n"
+        f"{assessment['name']}"
+    )
+
+    c3.info(
+        f"**Intended Bloom**\n\n"
+        f"{assessment['intended_bloom']}"
+    )
+
+    st.markdown("**CLOs used:**")
+
+    for clo in clos:
+
+        st.write(
+            f"**{clo['code']}** — "
+            f"{clo['description']}"
+        )
+
+    st.markdown("**PLOs used:**")
+
+    for plo in plos:
+
+        st.write(
+            f"**{plo['code']}** — "
+            f"{plo['description']}"
+        )
+
+    # ========================================================
+    # UPLOAD
+    # ========================================================
 
     uploaded = st.file_uploader(
         "Upload Quiz",
@@ -1207,11 +1370,12 @@ elif page == "📄 Quiz Analysis":
     if uploaded:
 
         if st.button(
-            "🔍 Extract Questions",
-            type="primary"
+            "Analyze Quiz",
+            type="primary",
+            use_container_width=True
         ):
 
-            text, method = read_uploaded_file(
+            text, method = read_file(
                 uploaded
             )
 
@@ -1220,160 +1384,555 @@ elif page == "📄 Quiz Analysis":
                 st.error(
                     f"Could not read file: {method}"
                 )
+                st.stop()
 
-            else:
+            questions = extract_questions(
+                text
+            )
 
-                questions = parse_questions(
-                    text
+            if not questions:
+
+                st.error(
+                    "No numbered questions detected."
                 )
+                st.stop()
 
-                if not questions:
+            st.session_state[
+                "analysis_questions"
+            ] = questions
 
-                    st.error(
-                        "No numbered questions were detected. "
-                        "Use Q1, Q2, Q3 or 1., 2., 3."
-                    )
-
-                else:
-
-                    st.session_state[
-                        "quiz_questions"
-                    ] = questions
-
-                    st.success(
-                        f"{len(questions)} questions detected using {method}."
-                    )
+            st.success(
+                f"{len(questions)} questions detected."
+            )
 
     questions = st.session_state.get(
-        "quiz_questions",
+        "analysis_questions",
         []
     )
 
     if questions:
 
-        clos = fetchall(
-            "SELECT * FROM clos WHERE course_id=?",
-            (selected_course_id,)
-        )
+        st.divider()
 
-        plos = fetchall(
-            "SELECT * FROM plos WHERE course_id=?",
-            (selected_course_id,)
+        st.subheader(
+            "Question-Level OBE Analysis"
         )
 
         clo_options = {
-            f"{x['code']} - {x['description']}": x["id"]
+            f"{x['code']} — {x['description']}":
+            x["id"]
             for x in clos
         }
 
         plo_options = {
-            f"{x['code']} - {x['description']}": x["id"]
+            f"{x['code']} — {x['description']}":
+            x["id"]
             for x in plos
         }
 
-        st.divider()
-
-        st.subheader(
-            "Question Mapping"
-        )
-
-        st.write(
-            "The tool detects Bloom level automatically. "
-            "You can verify or correct the mapping before "
-            "student attainment is calculated."
-        )
-
-        mapping_rows = []
+        analysis_rows = []
 
         for q in questions:
 
-            detected, evidence = detect_bloom(
+            detected = detect_bloom(
                 q["text"]
             )
 
+            bloom_score, bloom_status = bloom_alignment(
+                assessment["intended_bloom"],
+                detected["level"]
+            )
+
+            # Find best CLO
+            best_clo = None
+            best_clo_score = 0
+            best_clo_terms = []
+
+            for clo in clos:
+
+                score, terms = outcome_similarity(
+                    q["text"],
+                    clo["description"]
+                )
+
+                if score > best_clo_score:
+
+                    best_clo = clo
+                    best_clo_score = score
+                    best_clo_terms = terms
+
+            # Find best PLO
+            best_plo = None
+            best_plo_score = 0
+            best_plo_terms = []
+
+            for plo in plos:
+
+                score, terms = outcome_similarity(
+                    q["text"],
+                    plo["description"]
+                )
+
+                if score > best_plo_score:
+
+                    best_plo = plo
+                    best_plo_score = score
+                    best_plo_terms = terms
+
             st.markdown(
-                f"### {q['question_no']}"
+                f"### {q['number']}"
             )
 
             st.write(
                 q["text"]
             )
 
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3 = st.columns(3)
 
             with col1:
 
-                marks = st.number_input(
-                    f"Maximum Marks - {q['question_no']}",
-                    min_value=0.0,
-                    value=1.0,
-                    key=f"marks_{q['question_no']}"
+                st.metric(
+                    "Bloom Alignment",
+                    f"{bloom_score:.0f}%"
+                )
+
+                st.write(
+                    f"Intended: **{assessment['intended_bloom']}**"
+                )
+
+                st.write(
+                    f"Detected: **{detected['level']}**"
+                )
+
+                st.caption(
+                    "Evidence: "
+                    +
+                    (
+                        ", ".join(
+                            detected["evidence"]
+                        )
+                        if detected["evidence"]
+                        else "No clear verb detected"
+                    )
                 )
 
             with col2:
 
-                bloom_index = (
-                    BLOOM_LEVELS.index(detected)
-                    if detected in BLOOM_LEVELS
-                    else 0
+                st.metric(
+                    "CLO Alignment",
+                    f"{best_clo_score:.0f}%"
                 )
 
-                bloom = st.selectbox(
-                    f"Bloom - {q['question_no']}",
-                    BLOOM_LEVELS,
-                    index=bloom_index,
-                    key=f"bloom_{q['question_no']}"
-                )
+                if best_clo:
+
+                    st.write(
+                        f"**{best_clo['code']}**"
+                    )
+
+                    st.caption(
+                        best_clo["description"]
+                    )
+
+                    if best_clo_terms:
+
+                        st.caption(
+                            "Concept evidence: "
+                            +
+                            ", ".join(
+                                best_clo_terms[:12]
+                            )
+                        )
 
             with col3:
 
-                clo_label = st.selectbox(
-                    f"CLO - {q['question_no']}",
-                    list(clo_options.keys()),
-                    key=f"clo_{q['question_no']}"
+                st.metric(
+                    "PLO Alignment",
+                    f"{best_plo_score:.0f}%"
                 )
 
-            with col4:
+                if best_plo:
 
-                plo_label = st.selectbox(
-                    f"PLO - {q['question_no']}",
-                    list(plo_options.keys()),
-                    key=f"plo_{q['question_no']}"
+                    st.write(
+                        f"**{best_plo['code']}**"
+                    )
+
+                    st.caption(
+                        best_plo["description"]
+                    )
+
+                    if best_plo_terms:
+
+                        st.caption(
+                            "Concept evidence: "
+                            +
+                            ", ".join(
+                                best_plo_terms[:12]
+                            )
+                        )
+
+            # Feedback
+            if bloom_status == "Aligned":
+
+                st.success(
+                    f"Bloom: The question demonstrates "
+                    f"the intended {assessment['intended_bloom']} level."
                 )
 
-            st.caption(
-                f"Detected Bloom: {detected} | "
-                f"Evidence: {', '.join(evidence) if evidence else 'None'}"
+            else:
+
+                st.warning(
+                    f"Bloom: Intended "
+                    f"{assessment['intended_bloom']}, "
+                    f"but detected {detected['level']}."
+                )
+
+            if best_clo_score >= 60:
+
+                st.success(
+                    f"CLO: Strong alignment with "
+                    f"{best_clo['code']}."
+                )
+
+            elif best_clo_score >= 35:
+
+                st.warning(
+                    f"CLO: Partial/good alignment with "
+                    f"{best_clo['code']}."
+                )
+
+            else:
+
+                st.warning(
+                    "CLO: The question needs faculty review "
+                    "for CLO alignment."
+                )
+
+            if best_plo_score >= 60:
+
+                st.success(
+                    f"PLO: Strong alignment with "
+                    f"{best_plo['code']}."
+                )
+
+            elif best_plo_score >= 35:
+
+                st.warning(
+                    f"PLO: Partial/good alignment with "
+                    f"{best_plo['code']}."
+                )
+
+            else:
+
+                st.warning(
+                    "PLO: The question needs faculty review "
+                    "for PLO alignment."
+                )
+
+            # Save analysis
+            analysis_rows.append({
+                "Question": q["number"],
+                "Question Text": q["text"],
+                "Intended Bloom":
+                    assessment["intended_bloom"],
+                "Detected Bloom":
+                    detected["level"],
+                "Bloom Alignment %":
+                    bloom_score,
+                "Bloom Status":
+                    bloom_status,
+                "CLO":
+                    best_clo["code"]
+                    if best_clo else "",
+                "CLO Description":
+                    best_clo["description"]
+                    if best_clo else "",
+                "CLO Alignment %":
+                    best_clo_score,
+                "CLO Status":
+                    classify_alignment(
+                        best_clo_score
+                    ),
+                "PLO":
+                    best_plo["code"]
+                    if best_plo else "",
+                "PLO Description":
+                    best_plo["description"]
+                    if best_plo else "",
+                "PLO Alignment %":
+                    best_plo_score,
+                "PLO Status":
+                    classify_alignment(
+                        best_plo_score
+                    )
+            })
+
+            st.divider()
+
+        # ====================================================
+        # CORRECTED OVERALL CALCULATIONS
+        # ====================================================
+
+        results_df = pd.DataFrame(
+            analysis_rows
+        )
+
+        question_count = len(
+            results_df
+        )
+
+        average_clo = results_df[
+            "CLO Alignment %"
+        ].mean()
+
+        average_plo = results_df[
+            "PLO Alignment %"
+        ].mean()
+
+        average_bloom = results_df[
+            "Bloom Alignment %"
+        ].mean()
+
+        overall_score = (
+            average_bloom * 0.40
+            +
+            average_clo * 0.35
+            +
+            average_plo * 0.25
+        )
+
+        st.divider()
+
+        st.header(
+            "📊 OBE Analysis Results"
+        )
+
+        a, b, c, d = st.columns(4)
+
+        a.metric(
+            "Questions",
+            question_count
+        )
+
+        b.metric(
+            "Average CLO Alignment",
+            f"{average_clo:.1f}%"
+        )
+
+        c.metric(
+            "Average PLO Alignment",
+            f"{average_plo:.1f}%"
+        )
+
+        d.metric(
+            "Overall Review Score",
+            f"{overall_score:.1f}%"
+        )
+
+        # ====================================================
+        # BLOOM SUMMARY
+        # ====================================================
+
+        st.subheader(
+            "🧠 Bloom Analysis"
+        )
+
+        bloom_aligned_count = int(
+            (
+                results_df[
+                    "Bloom Status"
+                ] == "Aligned"
+            ).sum()
+        )
+
+        st.write(
+            f"{bloom_aligned_count} of "
+            f"{question_count} questions match the "
+            f"intended Bloom level."
+        )
+
+        st.dataframe(
+            results_df[
+                [
+                    "Question",
+                    "Intended Bloom",
+                    "Detected Bloom",
+                    "Bloom Alignment %",
+                    "Bloom Status"
+                ]
+            ],
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # ====================================================
+        # CLO SUMMARY
+        # ====================================================
+
+        st.subheader(
+            "🎯 CLO Alignment"
+        )
+
+        clo_summary = (
+            results_df.groupby("CLO")
+            ["CLO Alignment %"]
+            .mean()
+            .reset_index()
+        )
+
+        clo_summary.columns = [
+            "CLO",
+            "Average Alignment %"
+        ]
+
+        st.dataframe(
+            clo_summary,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        if not clo_summary.empty:
+
+            st.bar_chart(
+                clo_summary.set_index(
+                    "CLO"
+                )
             )
 
-            mapping_rows.append({
-                "question_no": q["question_no"],
-                "text": q["text"],
-                "marks": marks,
-                "bloom": bloom,
-                "clo_id": clo_options[clo_label],
-                "plo_id": plo_options[plo_label]
-            })
+        # ====================================================
+        # PLO SUMMARY
+        # ====================================================
+
+        st.subheader(
+            "🎓 PLO Alignment"
+        )
+
+        plo_summary = (
+            results_df.groupby("PLO")
+            ["PLO Alignment %"]
+            .mean()
+            .reset_index()
+        )
+
+        plo_summary.columns = [
+            "PLO",
+            "Average Alignment %"
+        ]
+
+        st.dataframe(
+            plo_summary,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        if not plo_summary.empty:
+
+            st.bar_chart(
+                plo_summary.set_index(
+                    "PLO"
+                )
+            )
+
+        # ====================================================
+        # REVISION QUESTIONS
+        # ====================================================
+
+        st.subheader(
+            "⚠️ Questions Requiring Review"
+        )
+
+        review = results_df[
+            (
+                results_df["Bloom Alignment %"] < 100
+            )
+            |
+            (
+                results_df["CLO Alignment %"] < 35
+            )
+            |
+            (
+                results_df["PLO Alignment %"] < 35
+            )
+        ]
+
+        if review.empty:
+
+            st.success(
+                "No major alignment problems were detected."
+            )
+
+        else:
+
+            st.dataframe(
+                review[
+                    [
+                        "Question",
+                        "Detected Bloom",
+                        "CLO",
+                        "CLO Alignment %",
+                        "PLO",
+                        "PLO Alignment %"
+                    ]
+                ],
+                use_container_width=True,
+                hide_index=True
+            )
+
+        # ====================================================
+        # SAVE TO DATABASE
+        # ====================================================
 
         st.divider()
 
         if st.button(
-            "💾 Save Question Mapping",
-            type="primary",
+            "💾 Save Analysis to Assessment",
             use_container_width=True
         ):
 
-            # Delete old mappings for this assessment
             execute(
                 "DELETE FROM questions WHERE assessment_id=?",
                 (assessment_id,)
             )
 
-            for row in mapping_rows:
+            for _, row in results_df.iterrows():
 
-                detected, _ = detect_bloom(
-                    row["text"]
-                )
+                clo_id = None
+                plo_id = None
+
+                if row["CLO"]:
+
+                    clo_row = fetchone(
+                        """
+                        SELECT id
+                        FROM clos
+                        WHERE course_id=?
+                        AND code=?
+                        """,
+                        (
+                            selected_course_id,
+                            row["CLO"]
+                        )
+                    )
+
+                    if clo_row:
+                        clo_id = clo_row["id"]
+
+                if row["PLO"]:
+
+                    plo_row = fetchone(
+                        """
+                        SELECT id
+                        FROM plos
+                        WHERE course_id=?
+                        AND code=?
+                        """,
+                        (
+                            selected_course_id,
+                            row["PLO"]
+                        )
+                    )
+
+                    if plo_row:
+                        plo_id = plo_row["id"]
 
                 execute(
                     """
@@ -1385,32 +1944,49 @@ elif page == "📄 Quiz Analysis":
                         max_marks,
                         clo_id,
                         plo_id,
-                        bloom_level,
-                        detected_bloom
+                        intended_bloom,
+                        detected_bloom,
+                        bloom_score,
+                        clo_score,
+                        plo_score
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)
                     """,
                     (
                         assessment_id,
-                        row["question_no"],
-                        row["text"],
-                        row["marks"],
-                        row["clo_id"],
-                        row["plo_id"],
-                        row["bloom"],
-                        detected
+                        row["Question"],
+                        row["Question Text"],
+                        1,
+                        clo_id,
+                        plo_id,
+                        row["Intended Bloom"],
+                        row["Detected Bloom"],
+                        row["Bloom Alignment %"],
+                        row["CLO Alignment %"],
+                        row["PLO Alignment %"]
                     )
                 )
 
             st.success(
-                "Question mapping saved successfully."
+                "Analysis saved. The results are now connected "
+                "to the course, assessment, CLO, PLO and Bloom data."
             )
 
-            st.info(
-                "The questions are now connected to the "
-                "Course → CLO → PLO → Bloom structure. "
-                "Next, upload student marks."
-            )
+        # ====================================================
+        # DOWNLOAD
+        # ====================================================
+
+        csv = results_df.to_csv(
+            index=False
+        ).encode("utf-8")
+
+        st.download_button(
+            "📥 Download OBE Analysis CSV",
+            csv,
+            "OBE_Analysis_Report.csv",
+            "text/csv",
+            use_container_width=True
+        )
 
 
 # ============================================================
@@ -1440,18 +2016,18 @@ elif page == "👥 Student Marks":
 
     if not assessments:
 
-        st.warning(
+        st.info(
             "Create an assessment first."
         )
         st.stop()
 
     assessment_dict = {
-        f"{x['name']}": x["id"]
+        x["name"]: x["id"]
         for x in assessments
     }
 
     assessment_name = st.selectbox(
-        "Select Assessment",
+        "Assessment",
         list(assessment_dict.keys())
     )
 
@@ -1472,257 +2048,209 @@ elif page == "👥 Student Marks":
     if not questions:
 
         st.warning(
-            "No question mapping exists for this assessment. "
-            "Go to Quiz Analysis first."
+            "Analyze and save the quiz first."
         )
         st.stop()
 
     st.subheader(
-        "Expected Marks File Format"
+        "Marks File Format"
     )
 
-    example = pd.DataFrame([
-        {
-            "Student ID": "BSBA001",
-            "Student Name": "Student One",
-            **{
-                q["question_no"]: 0
-                for q in questions
-            }
-        }
-    ])
+    example = {
+        "Student ID": ["S001"],
+        "Student Name": ["Student One"]
+    }
+
+    for q in questions:
+        example[q["question_no"]] = [0]
 
     st.dataframe(
-        example,
+        pd.DataFrame(example),
         use_container_width=True,
         hide_index=True
     )
 
-    uploaded_marks = st.file_uploader(
-        "Upload Student Marks Excel File",
-        type=["xlsx", "xls"],
-        key="marks_upload"
+    uploaded = st.file_uploader(
+        "Upload Student Marks",
+        type=["xlsx", "xls"]
     )
 
-    if uploaded_marks:
+    if uploaded:
 
-        marks_df = pd.read_excel(
-            uploaded_marks
-        )
-
-        st.subheader(
-            "Uploaded Marks Preview"
+        df = pd.read_excel(
+            uploaded
         )
 
         st.dataframe(
-            marks_df.head(20),
+            df.head(),
             use_container_width=True,
             hide_index=True
         )
 
-        student_id_column = None
-        student_name_column = None
+        id_col = None
+        name_col = None
 
-        for col in marks_df.columns:
+        for col in df.columns:
 
-            normalized = str(col).strip().lower()
+            c = str(col).lower().strip()
 
-            if normalized in [
+            if c in [
                 "student id",
                 "student_id",
                 "id",
                 "roll no",
-                "roll number",
-                "registration number"
+                "roll number"
             ]:
+                id_col = col
 
-                student_id_column = col
-
-            if normalized in [
+            if c in [
                 "student name",
                 "student_name",
                 "name"
             ]:
+                name_col = col
 
-                student_name_column = col
-
-        if student_id_column is None:
+        if id_col is None:
 
             st.error(
-                "The marks file must contain a Student ID column."
+                "Student ID column is required."
             )
 
         else:
 
-            missing_questions = []
+            missing = [
+                q["question_no"]
+                for q in questions
+                if q["question_no"] not in df.columns
+            ]
 
-            for q in questions:
-
-                if q["question_no"] not in marks_df.columns:
-                    missing_questions.append(
-                        q["question_no"]
-                    )
-
-            if missing_questions:
+            if missing:
 
                 st.error(
-                    "These question columns are missing: "
-                    + ", ".join(missing_questions)
+                    "Missing question columns: "
+                    + ", ".join(missing)
                 )
 
-            else:
+            elif st.button(
+                "💾 Save Marks",
+                type="primary",
+                use_container_width=True
+            ):
 
-                if st.button(
-                    "💾 Save Student Marks",
-                    type="primary",
-                    use_container_width=True
-                ):
+                for _, row in df.iterrows():
 
-                    saved_students = 0
-                    saved_marks = 0
+                    sid = str(
+                        row[id_col]
+                    ).strip()
 
-                    for _, row in marks_df.iterrows():
+                    if not sid:
+                        continue
 
-                        student_id = str(
-                            row[student_id_column]
+                    sname = ""
+
+                    if name_col is not None:
+
+                        sname = str(
+                            row[name_col]
                         ).strip()
 
-                        if not student_id:
-                            continue
+                    existing = fetchone(
+                        """
+                        SELECT id
+                        FROM students
+                        WHERE course_id=?
+                        AND student_id=?
+                        """,
+                        (
+                            selected_course_id,
+                            sid
+                        )
+                    )
 
-                        student_name = ""
+                    if existing:
 
-                        if student_name_column is not None:
+                        student_db_id = existing["id"]
 
-                            student_name = str(
-                                row[student_name_column]
-                            ).strip()
+                    else:
 
-                        existing = fetchone(
+                        cur = execute(
                             """
-                            SELECT id
-                            FROM students
-                            WHERE course_id=?
-                            AND student_id=?
+                            INSERT INTO students
+                            (course_id,student_id,student_name)
+                            VALUES (?,?,?)
                             """,
                             (
                                 selected_course_id,
-                                student_id
+                                sid,
+                                sname
                             )
                         )
 
-                        if existing:
+                        student_db_id = cur.lastrowid
 
-                            student_db_id = existing["id"]
+                    for q in questions:
+
+                        try:
+                            score = float(
+                                row[q["question_no"]]
+                            )
+                        except Exception:
+                            score = 0
+
+                        existing_mark = fetchone(
+                            """
+                            SELECT id
+                            FROM marks
+                            WHERE student_id=?
+                            AND question_id=?
+                            """,
+                            (
+                                student_db_id,
+                                q["id"]
+                            )
+                        )
+
+                        if existing_mark:
 
                             execute(
                                 """
-                                UPDATE students
-                                SET student_name=?
+                                UPDATE marks
+                                SET marks=?
                                 WHERE id=?
                                 """,
                                 (
-                                    student_name,
-                                    student_db_id
+                                    score,
+                                    existing_mark["id"]
                                 )
                             )
 
                         else:
 
-                            cur = execute(
+                            execute(
                                 """
-                                INSERT INTO students
-                                (
-                                    course_id,
-                                    student_id,
-                                    student_name
-                                )
-                                VALUES (?, ?, ?)
-                                """,
-                                (
-                                    selected_course_id,
-                                    student_id,
-                                    student_name
-                                )
-                            )
-
-                            student_db_id = cur.lastrowid
-
-                            saved_students += 1
-
-                        for q in questions:
-
-                            value = row[
-                                q["question_no"]
-                            ]
-
-                            try:
-                                score = float(value)
-                            except Exception:
-                                score = 0.0
-
-                            existing_mark = fetchone(
-                                """
-                                SELECT id
-                                FROM marks
-                                WHERE student_id=?
-                                AND question_id=?
+                                INSERT INTO marks
+                                (student_id,question_id,marks)
+                                VALUES (?,?,?)
                                 """,
                                 (
                                     student_db_id,
-                                    q["id"]
+                                    q["id"],
+                                    score
                                 )
                             )
 
-                            if existing_mark:
-
-                                execute(
-                                    """
-                                    UPDATE marks
-                                    SET marks=?
-                                    WHERE id=?
-                                    """,
-                                    (
-                                        score,
-                                        existing_mark["id"]
-                                    )
-                                )
-
-                            else:
-
-                                execute(
-                                    """
-                                    INSERT INTO marks
-                                    (
-                                        student_id,
-                                        question_id,
-                                        marks
-                                    )
-                                    VALUES (?, ?, ?)
-                                    """,
-                                    (
-                                        student_db_id,
-                                        q["id"],
-                                        score
-                                    )
-                                )
-
-                            saved_marks += 1
-
-                    st.success(
-                        f"Marks saved successfully. "
-                        f"{saved_students} new students and "
-                        f"{saved_marks} mark records processed."
-                    )
+                st.success(
+                    "Student marks saved successfully."
+                )
 
 
 # ============================================================
-# CLO ATTAINMENT
+# ATTAINMENT DASHBOARD
 # ============================================================
 
-elif page == "📊 CLO Attainment":
+elif page == "📊 Attainment Dashboard":
 
-    st.title("📊 CLO Attainment")
+    st.title("📊 OBE Attainment Dashboard")
 
     if not selected_course_id:
 
@@ -1731,78 +2259,68 @@ elif page == "📊 CLO Attainment":
         )
         st.stop()
 
-    query = """
+    rows = fetchall(
+        """
         SELECT
-            c.code AS CLO,
-            c.description AS Description,
-            c.target AS Target,
+            c.code CLO,
+            c.description CLO_Description,
+            c.target CLO_Target,
             q.max_marks,
             m.marks
-        FROM questions q
-        JOIN clos c
-            ON q.clo_id = c.id
-        JOIN marks m
-            ON q.id = m.question_id
+        FROM marks m
+        JOIN questions q
+            ON m.question_id=q.id
         JOIN students s
-            ON m.student_id = s.id
+            ON m.student_id=s.id
+        JOIN clos c
+            ON q.clo_id=c.id
         WHERE s.course_id=?
-    """
-
-    rows = fetchall(
-        query,
+        """,
         (selected_course_id,)
     )
 
     if not rows:
 
         st.info(
-            "No student marks are available yet."
+            "Student marks have not been entered yet."
         )
         st.stop()
 
     data = []
 
-    clo_codes = sorted(
+    for clo_code in sorted(
         set(
-            row["CLO"]
-            for row in rows
+            x["CLO"]
+            for x in rows
         )
-    )
+    ):
 
-    for clo_code in clo_codes:
-
-        clo_rows = [
-            row
-            for row in rows
-            if row["CLO"] == clo_code
+        subset = [
+            x
+            for x in rows
+            if x["CLO"] == clo_code
         ]
 
-        total_obtained = sum(
+        obtained = sum(
             float(x["marks"])
-            for x in clo_rows
+            for x in subset
         )
 
-        total_possible = sum(
+        possible = sum(
             float(x["max_marks"])
-            for x in clo_rows
+            for x in subset
         )
 
         attainment = (
-            total_obtained /
-            total_possible *
+            obtained /
+            possible *
             100
-            if total_possible
+            if possible
             else 0
         )
 
         target = float(
-            clo_rows[0]["Target"]
-        )
-
-        status = (
-            "Achieved"
-            if attainment >= target
-            else "Below Target"
+            subset[0]["CLO_Target"]
         )
 
         data.append({
@@ -1812,311 +2330,130 @@ elif page == "📊 CLO Attainment":
                 2
             ),
             "Target %": target,
-            "Status": status
+            "Status":
+                "Achieved"
+                if attainment >= target
+                else "Below Target"
         })
 
-    result_df = pd.DataFrame(
+    result = pd.DataFrame(
         data
     )
 
     st.dataframe(
-        result_df,
+        result,
         use_container_width=True,
         hide_index=True
     )
 
-    st.subheader(
-        "CLO Attainment Chart"
-    )
-
-    chart_df = result_df.set_index(
-        "CLO"
-    )[["Attainment %", "Target %"]]
-
     st.bar_chart(
-        chart_df
-    )
-
-    achieved = (
-        result_df["Status"] == "Achieved"
-    ).sum()
-
-    st.metric(
-        "CLOs Meeting Target",
-        f"{achieved}/{len(result_df)}"
-    )
-
-
-# ============================================================
-# PLO ATTAINMENT
-# ============================================================
-
-elif page == "📊 PLO Attainment":
-
-    st.title("📊 PLO Attainment")
-
-    if not selected_course_id:
-
-        st.warning(
-            "Select a course first."
-        )
-        st.stop()
-
-    query = """
-        SELECT
-            p.code AS PLO,
-            p.description AS Description,
-            p.target AS Target,
-            q.max_marks,
-            m.marks
-        FROM questions q
-        JOIN plos p
-            ON q.plo_id = p.id
-        JOIN marks m
-            ON q.id = m.question_id
-        JOIN students s
-            ON m.student_id = s.id
-        WHERE s.course_id=?
-    """
-
-    rows = fetchall(
-        query,
-        (selected_course_id,)
-    )
-
-    if not rows:
-
-        st.info(
-            "No PLO-linked marks are available yet."
-        )
-        st.stop()
-
-    data = []
-
-    for plo_code in sorted(
-        set(
-            row["PLO"]
-            for row in rows
-        )
-    ):
-
-        plo_rows = [
-            row
-            for row in rows
-            if row["PLO"] == plo_code
-        ]
-
-        obtained = sum(
-            float(x["marks"])
-            for x in plo_rows
-        )
-
-        possible = sum(
-            float(x["max_marks"])
-            for x in plo_rows
-        )
-
-        attainment = (
-            obtained / possible * 100
-            if possible
-            else 0
-        )
-
-        target = float(
-            plo_rows[0]["Target"]
-        )
-
-        status = (
-            "Achieved"
-            if attainment >= target
-            else "Below Target"
-        )
-
-        data.append({
-            "PLO": plo_code,
-            "Attainment %": round(
-                attainment,
-                2
-            ),
-            "Target %": target,
-            "Status": status
-        })
-
-    result_df = pd.DataFrame(
-        data
-    )
-
-    st.dataframe(
-        result_df,
-        use_container_width=True,
-        hide_index=True
-    )
-
-    st.subheader(
-        "PLO Attainment Chart"
-    )
-
-    st.bar_chart(
-        result_df.set_index(
-            "PLO"
+        result.set_index(
+            "CLO"
         )[[
             "Attainment %",
             "Target %"
         ]]
     )
 
-
-# ============================================================
-# BLOOM ATTAINMENT
-# ============================================================
-
-elif page == "🧠 Bloom Attainment":
-
-    st.title("🧠 Bloom Level Attainment")
-
-    if not selected_course_id:
-
-        st.warning(
-            "Select a course first."
-        )
-        st.stop()
-
-    query = """
-        SELECT
-            q.bloom_level AS Bloom,
-            q.max_marks,
-            m.marks
-        FROM questions q
-        JOIN marks m
-            ON q.id=m.question_id
-        JOIN students s
-            ON m.student_id=s.id
-        WHERE s.course_id=?
-    """
-
-    rows = fetchall(
-        query,
-        (selected_course_id,)
-    )
-
-    if not rows:
-
-        st.info(
-            "No marks are available yet."
-        )
-        st.stop()
-
-    data = []
-
-    for bloom in BLOOM_LEVELS:
-
-        bloom_rows = [
-            row
-            for row in rows
-            if row["Bloom"] == bloom
-        ]
-
-        if not bloom_rows:
-            continue
-
-        obtained = sum(
-            float(x["marks"])
-            for x in bloom_rows
-        )
-
-        possible = sum(
-            float(x["max_marks"])
-            for x in bloom_rows
-        )
-
-        attainment = (
-            obtained / possible * 100
-            if possible
-            else 0
-        )
-
-        data.append({
-            "Bloom Level": bloom,
-            "Questions": len(bloom_rows),
-            "Attainment %": round(
-                attainment,
-                2
-            )
-        })
-
-    result_df = pd.DataFrame(
-        data
-    )
-
-    st.dataframe(
-        result_df,
-        use_container_width=True,
-        hide_index=True
-    )
+    st.divider()
 
     st.subheader(
-        "Bloom Attainment"
+        "PLO Attainment"
     )
 
-    if not result_df.empty:
-
-        st.bar_chart(
-            result_df.set_index(
-                "Bloom Level"
-            )[[
-                "Attainment %"
-            ]]
-        )
-
-    # --------------------------------------------------------
-    # Question-level Bloom check
-    # --------------------------------------------------------
-
-    st.subheader(
-        "Intended vs Detected Bloom"
-    )
-
-    questions = fetchall(
+    plo_rows = fetchall(
         """
         SELECT
-            question_no,
-            question_text,
-            bloom_level,
-            detected_bloom
-        FROM questions q
-        JOIN assessments a
-            ON q.assessment_id=a.id
-        WHERE a.course_id=?
-        ORDER BY q.id
+            p.code PLO,
+            p.target Target,
+            q.max_marks,
+            m.marks
+        FROM marks m
+        JOIN questions q
+            ON m.question_id=q.id
+        JOIN students s
+            ON m.student_id=s.id
+        JOIN plos p
+            ON q.plo_id=p.id
+        WHERE s.course_id=?
         """,
         (selected_course_id,)
     )
 
-    if questions:
+    plo_data = []
 
-        bloom_check = pd.DataFrame([
-            {
-                "Question": q["question_no"],
-                "Intended Bloom": q["bloom_level"],
-                "Detected Bloom": q["detected_bloom"],
-                "Alignment":
-                    "Aligned"
-                    if q["bloom_level"]
-                    == q["detected_bloom"]
-                    else "Needs Review"
-            }
-            for q in questions
-        ])
+    for plo_code in sorted(
+        set(
+            x["PLO"]
+            for x in plo_rows
+        )
+    ):
+
+        subset = [
+            x
+            for x in plo_rows
+            if x["PLO"] == plo_code
+        ]
+
+        obtained = sum(
+            float(x["marks"])
+            for x in subset
+        )
+
+        possible = sum(
+            float(x["max_marks"])
+            for x in subset
+        )
+
+        attainment = (
+            obtained /
+            possible *
+            100
+            if possible
+            else 0
+        )
+
+        target = float(
+            subset[0]["Target"]
+        )
+
+        plo_data.append({
+            "PLO": plo_code,
+            "Attainment %": round(
+                attainment,
+                2
+            ),
+            "Target %": target,
+            "Status":
+                "Achieved"
+                if attainment >= target
+                else "Below Target"
+        })
+
+    if plo_data:
+
+        plo_df = pd.DataFrame(
+            plo_data
+        )
 
         st.dataframe(
-            bloom_check,
+            plo_df,
             use_container_width=True,
             hide_index=True
         )
 
+        st.bar_chart(
+            plo_df.set_index(
+                "PLO"
+            )[[
+                "Attainment %",
+                "Target %"
+            ]]
+        )
+
 
 # ============================================================
-# INDIVIDUAL STUDENT PERFORMANCE
+# STUDENT PERFORMANCE
 # ============================================================
 
 elif page == "👤 Student Performance":
@@ -2143,22 +2480,23 @@ elif page == "👤 Student Performance":
     if not students:
 
         st.info(
-            "No students found. Upload student marks first."
+            "No students found."
         )
         st.stop()
 
-    student_options = {
-        f"{x['student_id']} - {x['student_name']}": x["id"]
+    options = {
+        f"{x['student_id']} - {x['student_name']}":
+        x["id"]
         for x in students
     }
 
-    selected_student = st.selectbox(
-        "Select Student",
-        list(student_options.keys())
+    selected = st.selectbox(
+        "Student",
+        list(options.keys())
     )
 
-    student_db_id = student_options[
-        selected_student
+    student_id = options[
+        selected
     ]
 
     rows = fetchall(
@@ -2167,8 +2505,8 @@ elif page == "👤 Student Performance":
             q.question_no,
             q.max_marks,
             q.bloom_level,
-            c.code AS CLO,
-            p.code AS PLO,
+            c.code CLO,
+            p.code PLO,
             m.marks
         FROM marks m
         JOIN questions q
@@ -2180,127 +2518,98 @@ elif page == "👤 Student Performance":
         WHERE m.student_id=?
         ORDER BY q.id
         """,
-        (student_db_id,)
+        (student_id,)
     )
 
-    if not rows:
+    if rows:
 
-        st.info(
-            "No marks found for this student."
-        )
-        st.stop()
+        df = pd.DataFrame([
+            dict(x)
+            for x in rows
+        ])
 
-    total_obtained = sum(
-        float(x["marks"])
-        for x in rows
-    )
+        obtained = df["marks"].sum()
+        possible = df["max_marks"].sum()
 
-    total_possible = sum(
-        float(x["max_marks"])
-        for x in rows
-    )
-
-    percentage = (
-        total_obtained /
-        total_possible *
-        100
-        if total_possible
-        else 0
-    )
-
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric(
-        "Marks",
-        f"{total_obtained:.2f}/{total_possible:.2f}"
-    )
-
-    col2.metric(
-        "Percentage",
-        f"{percentage:.2f}%"
-    )
-
-    col3.metric(
-        "Questions",
-        len(rows)
-    )
-
-    student_df = pd.DataFrame([
-        dict(x)
-        for x in rows
-    ])
-
-    st.subheader(
-        "Question Performance"
-    )
-
-    st.dataframe(
-        student_df,
-        use_container_width=True,
-        hide_index=True
-    )
-
-    # --------------------------------------------------------
-    # Student CLO performance
-    # --------------------------------------------------------
-
-    st.subheader(
-        "Student CLO Attainment"
-    )
-
-    clo_data = []
-
-    for clo in sorted(
-        student_df["CLO"].dropna().unique()
-    ):
-
-        temp = student_df[
-            student_df["CLO"] == clo
-        ]
-
-        obtained = temp["marks"].sum()
-        possible = temp["max_marks"].sum()
-
-        attainment = (
+        percentage = (
             obtained / possible * 100
             if possible
             else 0
         )
 
-        clo_data.append({
-            "CLO": clo,
-            "Attainment %": round(
-                attainment,
-                2
-            )
-        })
+        a, b = st.columns(2)
 
-    if clo_data:
+        a.metric(
+            "Total Marks",
+            f"{obtained:.1f}/{possible:.1f}"
+        )
 
-        clo_df = pd.DataFrame(
-            clo_data
+        b.metric(
+            "Overall Percentage",
+            f"{percentage:.1f}%"
         )
 
         st.dataframe(
-            clo_df,
+            df,
             use_container_width=True,
             hide_index=True
         )
 
-        st.bar_chart(
-            clo_df.set_index(
-                "CLO"
-            )
+        st.subheader(
+            "Student CLO Performance"
         )
+
+        clo_data = []
+
+        for clo in sorted(
+            df["CLO"].dropna().unique()
+        ):
+
+            temp = df[
+                df["CLO"] == clo
+            ]
+
+            obtained = temp["marks"].sum()
+            possible = temp["max_marks"].sum()
+
+            attainment = (
+                obtained / possible * 100
+                if possible
+                else 0
+            )
+
+            clo_data.append({
+                "CLO": clo,
+                "Attainment %":
+                    round(attainment, 2)
+            })
+
+        if clo_data:
+
+            clo_df = pd.DataFrame(
+                clo_data
+            )
+
+            st.dataframe(
+                clo_df,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.bar_chart(
+                clo_df.set_index(
+                    "CLO"
+                )
+            )
 
 
 # ============================================================
 # REPORTS
 # ============================================================
 
-elif page == "📑 Reports":
+elif page == "📥 Reports":
 
-    st.title("📑 OBE Reports")
+    st.title("📥 OBE Reports")
 
     if not selected_course_id:
 
@@ -2309,162 +2618,79 @@ elif page == "📑 Reports":
         )
         st.stop()
 
-    tabs = st.tabs([
-        "Course",
-        "CLO",
-        "PLO",
-        "Bloom",
-        "Student Marks"
-    ])
+    questions = fetchall(
+        """
+        SELECT
+            q.question_no,
+            q.question_text,
+            q.intended_bloom,
+            q.detected_bloom,
+            q.bloom_score,
+            c.code CLO,
+            q.clo_score,
+            p.code PLO,
+            q.plo_score
+        FROM questions q
+        LEFT JOIN clos c
+            ON q.clo_id=c.id
+        LEFT JOIN plos p
+            ON q.plo_id=p.id
+        JOIN assessments a
+            ON q.assessment_id=a.id
+        WHERE a.course_id=?
+        ORDER BY q.id
+        """,
+        (selected_course_id,)
+    )
 
-    with tabs[0]:
+    if not questions:
 
-        course = fetchone(
-            "SELECT * FROM courses WHERE id=?",
-            (selected_course_id,)
+        st.info(
+            "No saved analysis is available."
         )
 
-        st.write(
-            f"**Course Code:** {course['code']}"
+    else:
+
+        report = pd.DataFrame([
+            dict(x)
+            for x in questions
+        ])
+
+        st.dataframe(
+            report,
+            use_container_width=True,
+            hide_index=True
         )
 
-        st.write(
-            f"**Course Name:** {course['name']}"
+        csv = report.to_csv(
+            index=False
+        ).encode("utf-8")
+
+        st.download_button(
+            "Download CSV",
+            csv,
+            "OBE_Report.csv",
+            "text/csv",
+            use_container_width=True
         )
 
-        st.write(
-            f"**Semester:** {course['semester']}"
-        )
+        excel = io.BytesIO()
 
-        st.write(
-            f"**Section:** {course['section']}"
-        )
+        with pd.ExcelWriter(
+            excel,
+            engine="openpyxl"
+        ) as writer:
 
-    with tabs[1]:
-
-        clos = fetchall(
-            "SELECT * FROM clos WHERE course_id=?",
-            (selected_course_id,)
-        )
-
-        if clos:
-
-            st.dataframe(
-                pd.DataFrame([
-                    dict(x)
-                    for x in clos
-                ]),
-                use_container_width=True,
-                hide_index=True
+            report.to_excel(
+                writer,
+                index=False,
+                sheet_name="OBE Analysis"
             )
 
-    with tabs[2]:
-
-        plos = fetchall(
-            "SELECT * FROM plos WHERE course_id=?",
-            (selected_course_id,)
+        st.download_button(
+            "Download Excel",
+            excel.getvalue(),
+            "OBE_Report.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
         )
-
-        if plos:
-
-            st.dataframe(
-                pd.DataFrame([
-                    dict(x)
-                    for x in plos
-                ]),
-                use_container_width=True,
-                hide_index=True
-            )
-
-    with tabs[3]:
-
-        rows = fetchall(
-            """
-            SELECT
-                q.question_no,
-                q.bloom_level,
-                q.detected_bloom,
-                q.max_marks
-            FROM questions q
-            JOIN assessments a
-                ON q.assessment_id=a.id
-            WHERE a.course_id=?
-            """,
-            (selected_course_id,)
-        )
-
-        if rows:
-
-            st.dataframe(
-                pd.DataFrame([
-                    dict(x)
-                    for x in rows
-                ]),
-                use_container_width=True,
-                hide_index=True
-            )
-
-    with tabs[4]:
-
-        rows = fetchall(
-            """
-            SELECT
-                s.student_id,
-                s.student_name,
-                q.question_no,
-                m.marks,
-                q.max_marks
-            FROM marks m
-            JOIN students s
-                ON m.student_id=s.id
-            JOIN questions q
-                ON m.question_id=q.id
-            WHERE s.course_id=?
-            ORDER BY s.student_id
-            """,
-            (selected_course_id,)
-        )
-
-        if rows:
-
-            report_df = pd.DataFrame([
-                dict(x)
-                for x in rows
-            ])
-
-            st.dataframe(
-                report_df,
-                use_container_width=True,
-                hide_index=True
-            )
-
-            csv = report_df.to_csv(
-                index=False
-            ).encode("utf-8")
-
-            st.download_button(
-                "Download Student Marks CSV",
-                csv,
-                "student_marks_report.csv",
-                "text/csv"
-            )
-
-            excel_buffer = io.BytesIO()
-
-            with pd.ExcelWriter(
-                excel_buffer,
-                engine="openpyxl"
-            ) as writer:
-
-                report_df.to_excel(
-                    writer,
-                    index=False,
-                    sheet_name="Student Marks"
-                )
-
-            st.download_button(
-                "Download Excel Report",
-                excel_buffer.getvalue(),
-                "OBE_student_marks_report.xlsx",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
