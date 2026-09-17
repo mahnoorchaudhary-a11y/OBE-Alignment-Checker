@@ -1,7 +1,8 @@
 streamlit
 pandas
 openpyxl
-xlsxwriter
-plotly
-reportlab
+python-docx
 pypdf
+pytesseract
+pdf2image
+Pillow
