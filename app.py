@@ -1,10 +1,11 @@
-import streamlit as st
-import pandas as pd
-import re
 import io
+import re
+import pandas as pd
+import streamlit as st
+
 
 # ============================================================
-# PAGE CONFIG
+# PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
@@ -13,8 +14,9 @@ st.set_page_config(
     layout="wide"
 )
 
+
 # ============================================================
-# CONSTANTS
+# BLOOM'S TAXONOMY
 # ============================================================
 
 BLOOM_LEVELS = [
@@ -37,146 +39,361 @@ BLOOM_RANK = {
 
 BLOOM_VERBS = {
     "Remember": [
-        "define", "list", "name", "identify", "state",
-        "recall", "recognize", "recognise", "mention",
-        "label", "select", "match", "repeat"
+        "define",
+        "identify",
+        "list",
+        "name",
+        "state",
+        "recall",
+        "recognize",
+        "label",
+        "select",
+        "match"
     ],
+
     "Understand": [
-        "explain", "summarize", "summarise", "interpret",
-        "discuss", "classify", "describe", "outline",
-        "paraphrase", "illustrate", "translate", "clarify"
+        "explain",
+        "describe",
+        "summarize",
+        "interpret",
+        "discuss",
+        "classify",
+        "illustrate",
+        "compare",
+        "paraphrase"
     ],
+
     "Apply": [
-        "apply", "use", "demonstrate", "solve",
-        "calculate", "implement", "execute", "perform",
-        "practice", "show", "compute"
+        "apply",
+        "use",
+        "demonstrate",
+        "solve",
+        "calculate",
+        "implement",
+        "execute",
+        "practice",
+        "construct"
     ],
+
     "Analyze": [
-        "analyze", "analyse", "examine", "compare",
-        "contrast", "differentiate", "distinguish",
-        "investigate", "categorize", "categorise",
-        "break down", "deconstruct", "inspect"
+        "analyze",
+        "analyse",
+        "differentiate",
+        "compare",
+        "contrast",
+        "examine",
+        "investigate",
+        "categorize",
+        "distinguish",
+        "infer"
     ],
+
     "Evaluate": [
-        "evaluate", "justify", "critique", "assess",
-        "judge", "defend", "appraise", "recommend",
-        "argue", "validate", "rate", "review"
+        "evaluate",
+        "assess",
+        "judge",
+        "justify",
+        "critique",
+        "defend",
+        "argue",
+        "recommend",
+        "validate",
+        "appraise"
     ],
+
     "Create": [
-        "create", "design", "develop", "formulate",
-        "produce", "compose", "plan", "propose",
-        "generate", "construct", "invent"
+        "create",
+        "design",
+        "develop",
+        "formulate",
+        "produce",
+        "construct",
+        "generate",
+        "plan",
+        "propose",
+        "compose"
     ]
 }
 
-BLOOM_ACTION = {
-    "Remember": "Identify or state",
-    "Understand": "Explain or describe",
-    "Apply": "Apply or demonstrate",
-    "Analyze": "Analyze, compare, or differentiate",
-    "Evaluate": "Evaluate and justify",
-    "Create": "Design, develop, or create"
-}
-
-STOP_WORDS = {
-    "the", "a", "an", "and", "or", "of", "to", "in",
-    "on", "for", "with", "by", "is", "are", "was",
-    "were", "be", "been", "being", "this", "that",
-    "these", "those", "from", "as", "at", "it", "its",
-    "into", "about", "which", "what", "how", "why",
-    "when", "where", "who", "whom", "can", "could",
-    "should", "would", "will", "may", "might", "do",
-    "does", "did"
-}
 
 # ============================================================
-# TEXT FUNCTIONS
+# STOP WORDS
+# ============================================================
+
+STOP_WORDS = {
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "of",
+    "to",
+    "in",
+    "on",
+    "for",
+    "with",
+    "by",
+    "from",
+    "at",
+    "as",
+    "is",
+    "are",
+    "be",
+    "been",
+    "being",
+    "that",
+    "this",
+    "these",
+    "those",
+    "it",
+    "its",
+    "their",
+    "they",
+    "them",
+    "student",
+    "students",
+    "learner",
+    "learners",
+    "will",
+    "should",
+    "can",
+    "may",
+    "able",
+    "ability",
+    "course",
+    "learning",
+    "learn",
+    "knowledge",
+    "skills",
+    "skill"
+}
+
+
+# ============================================================
+# CONCEPT GROUPS
+# ============================================================
+
+CONCEPT_GROUPS = {
+
+    "main idea": {
+        "main",
+        "idea",
+        "central",
+        "point",
+        "theme",
+        "message",
+        "topic",
+        "purpose",
+        "focus"
+    },
+
+    "reading": {
+        "read",
+        "reading",
+        "comprehension",
+        "interpret",
+        "meaning",
+        "understand",
+        "text",
+        "passage"
+    },
+
+    "organization": {
+        "organization",
+        "organisation",
+        "pattern",
+        "structure",
+        "sequence",
+        "cause",
+        "effect",
+        "comparison",
+        "contrast",
+        "process",
+        "classification",
+        "chronological"
+    },
+
+    "paraphrasing": {
+        "paraphrase",
+        "paraphrasing",
+        "restate",
+        "rewrite",
+        "rephrase",
+        "original",
+        "meaning"
+    },
+
+    "author purpose": {
+        "purpose",
+        "inform",
+        "persuade",
+        "entertain",
+        "explain",
+        "writer",
+        "author",
+        "intention"
+    },
+
+    "tone": {
+        "tone",
+        "attitude",
+        "mood",
+        "author",
+        "writer",
+        "language",
+        "emotion",
+        "feeling"
+    },
+
+    "writing": {
+        "write",
+        "writing",
+        "essay",
+        "paragraph",
+        "composition",
+        "draft",
+        "revision",
+        "revise",
+        "argument"
+    },
+
+    "critical thinking": {
+        "critical",
+        "thinking",
+        "reason",
+        "reasoning",
+        "evidence",
+        "argument",
+        "logic",
+        "judgment",
+        "evaluate",
+        "analysis"
+    },
+
+    "communication": {
+        "communication",
+        "communicate",
+        "presentation",
+        "speaking",
+        "listening",
+        "audience",
+        "message",
+        "interaction"
+    },
+
+    "grammar": {
+        "grammar",
+        "sentence",
+        "syntax",
+        "verb",
+        "noun",
+        "pronoun",
+        "agreement",
+        "punctuation"
+    },
+
+    "vocabulary": {
+        "vocabulary",
+        "word",
+        "meaning",
+        "definition",
+        "context",
+        "lexical"
+    },
+
+    "research": {
+        "research",
+        "source",
+        "citation",
+        "reference",
+        "academic",
+        "evidence",
+        "information"
+    },
+
+    "analysis": {
+        "analyze",
+        "analyse",
+        "analysis",
+        "examine",
+        "compare",
+        "contrast",
+        "differentiate",
+        "relationship"
+    },
+
+    "problem solving": {
+        "problem",
+        "solve",
+        "solution",
+        "application",
+        "decision",
+        "strategy"
+    }
+}
+
+
+# ============================================================
+# TEXT NORMALIZATION
 # ============================================================
 
 def normalize_text(text):
-    text = str(text).lower()
-    text = re.sub(r"[^a-z0-9\s]", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+
+    if text is None:
+        return ""
+
+    text = str(text)
+
+    text = text.replace("\n", " ")
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
+
+    text = re.sub(
+        r"[^\w\s\-]",
+        " ",
+        text
+    )
+
+    return text.lower().strip()
 
 
 def tokenize(text):
+
     text = normalize_text(text)
+
+    words = re.findall(
+        r"[a-zA-Z0-9]+",
+        text
+    )
 
     return {
         word
-        for word in text.split()
-        if word not in STOP_WORDS and len(word) > 2
+        for word in words
+        if len(word) > 2
+        and word not in STOP_WORDS
     }
 
+
+# ============================================================
+# CONCEPT EXPANSION
+# ============================================================
 
 def expanded_concepts(text):
 
     words = tokenize(text)
-    concepts = set(words)
 
-    concept_groups = {
-        "main idea": {
-            "main", "idea", "central", "point",
-            "theme", "message", "purpose"
-        },
-        "reading": {
-            "read", "reading", "comprehension",
-            "understand", "understanding", "passage",
-            "text"
-        },
-        "organization": {
-            "organization", "organisation", "pattern",
-            "structure", "sequence", "cause", "effect",
-            "compare", "contrast", "problem", "solution"
-        },
-        "paraphrasing": {
-            "paraphrase", "paraphrasing", "rewrite",
-            "restatement", "restating"
-        },
-        "author purpose": {
-            "author", "purpose", "intent", "intention",
-            "inform", "persuade", "entertain"
-        },
-        "tone": {
-            "tone", "attitude", "feeling", "mood"
-        },
-        "writing": {
-            "write", "writing", "essay", "paragraph",
-            "sentence", "composition"
-        },
-        "critical thinking": {
-            "critical", "thinking", "reason", "reasoning",
-            "evidence", "argument", "claim"
-        },
-        "communication": {
-            "communication", "communicate", "language",
-            "speaking", "listening", "presentation"
-        },
-        "grammar": {
-            "grammar", "grammatical", "verb", "noun",
-            "sentence", "syntax"
-        },
-        "vocabulary": {
-            "vocabulary", "word", "meaning", "definition",
-            "lexical"
-        },
-        "research": {
-            "research", "source", "citation", "reference",
-            "evidence", "data"
-        },
-        "analysis": {
-            "analyze", "analyse", "analysis", "examine",
-            "evaluate", "critique", "compare"
-        }
-    }
+    expanded = set(words)
 
-    for group in concept_groups.values():
+    for concept_words in CONCEPT_GROUPS.values():
 
-        if words.intersection(group):
-            concepts.update(group)
+        if words.intersection(concept_words):
+            expanded.update(concept_words)
 
-    return concepts
+    return expanded
 
 
 # ============================================================
@@ -185,135 +402,195 @@ def expanded_concepts(text):
 
 def detect_bloom(question):
 
-    q = normalize_text(question)
+    text = normalize_text(question)
 
-    scores = {
-        level: 0
-        for level in BLOOM_LEVELS
-    }
+    detected = []
 
     for level, verbs in BLOOM_VERBS.items():
 
         for verb in verbs:
 
-            if re.search(
-                rf"\b{re.escape(verb)}\b",
-                q
-            ):
-                scores[level] += 1
+            pattern = r"\b" + re.escape(verb) + r"\b"
 
-    if "why" in q:
-        scores["Analyze"] += 1
+            if re.search(pattern, text):
 
-    if "how" in q:
-        scores["Understand"] += 1
+                detected.append(
+                    (level, verb)
+                )
 
-    if "compare and contrast" in q:
-        scores["Analyze"] += 3
+    if detected:
 
-    if "justify" in q:
-        scores["Evaluate"] += 3
+        detected.sort(
+            key=lambda item: BLOOM_RANK[item[0]],
+            reverse=True
+        )
 
-    if "design" in q:
-        scores["Create"] += 3
+        level, verb = detected[0]
 
-    if "create" in q:
-        scores["Create"] += 3
+        return {
+            "level": level,
+            "verb": verb,
+            "confidence": "High"
+        }
 
-    best_level = max(
-        scores,
-        key=scores.get
-    )
-
-    if scores[best_level] == 0:
-        return "Needs Review"
-
-    return best_level
+    return {
+        "level": "Needs Review",
+        "verb": "",
+        "confidence": "Low"
+    }
 
 
-def bloom_alignment(intended, detected):
+# ============================================================
+# BLOOM ALIGNMENT
+# ============================================================
+
+def bloom_alignment(
+    intended,
+    detected
+):
 
     if detected == "Needs Review":
         return 40
 
-    distance = abs(
+    difference = abs(
         BLOOM_RANK[intended]
-        - BLOOM_RANK[detected]
+        -
+        BLOOM_RANK[detected]
     )
 
-    if distance == 0:
+    if difference == 0:
         return 100
 
-    if distance == 1:
+    if difference == 1:
         return 65
 
-    if distance == 2:
+    if difference == 2:
         return 45
 
     return 25
 
 
 # ============================================================
-# CLO / PLO SIMILARITY
+# OUTCOME SIMILARITY
 # ============================================================
 
-def outcome_similarity(question, outcome):
+def outcome_similarity(
+    question,
+    outcome
+):
 
-    q_words = expanded_concepts(question)
-    o_words = expanded_concepts(outcome)
-
-    if not q_words or not o_words:
-        return 0, []
-
-    intersection = q_words.intersection(o_words)
-
-    dice = (
-        2 * len(intersection)
-        / (len(q_words) + len(o_words))
+    q_words = expanded_concepts(
+        question
     )
 
-    score = dice * 100
+    o_words = expanded_concepts(
+        outcome
+    )
 
-    q_norm = normalize_text(question)
-    o_norm = normalize_text(outcome)
+    if not q_words or not o_words:
+        return 0
 
-    # Exact outcome phrase
-    if o_norm in q_norm:
-        score += 25
+    intersection = q_words.intersection(
+        o_words
+    )
 
-    # Important words
-    for word in tokenize(outcome):
+    union = q_words.union(
+        o_words
+    )
 
-        if word in q_norm.split():
-            score += 2
+    jaccard = (
+        len(intersection)
+        /
+        max(len(union), 1)
+    )
 
-    score = min(score, 100)
+    outcome_coverage = (
+        len(intersection)
+        /
+        max(len(o_words), 1)
+    )
 
-    evidence = sorted(
-        list(intersection)
-    )[:10]
+    question_coverage = (
+        len(intersection)
+        /
+        max(len(q_words), 1)
+    )
 
-    return score, evidence
+    question_text = normalize_text(
+        question
+    )
+
+    outcome_text = normalize_text(
+        outcome
+    )
+
+    phrase_bonus = 0
+
+    phrases = re.split(
+        r"[,;:.]",
+        outcome_text
+    )
+
+    for phrase in phrases:
+
+        phrase = phrase.strip()
+
+        if (
+            len(phrase.split()) >= 2
+            and phrase in question_text
+        ):
+            phrase_bonus += 0.08
+
+    score = (
+        jaccard * 0.35
+        +
+        outcome_coverage * 0.45
+        +
+        question_coverage * 0.20
+        +
+        min(phrase_bonus, 0.20)
+    )
+
+    return round(
+        min(score * 100, 100),
+        1
+    )
 
 
 # ============================================================
-# FILE READING
+# FILE READER
 # ============================================================
 
-def extract_text_from_upload(uploaded_file):
+def extract_text_from_upload(
+    uploaded_file
+):
+
+    if uploaded_file is None:
+        return ""
 
     filename = uploaded_file.name.lower()
+
     data = uploaded_file.getvalue()
 
+    # --------------------------------------------------------
     # TXT
+    # --------------------------------------------------------
+
     if filename.endswith(".txt"):
 
-        return data.decode(
-            "utf-8",
-            errors="ignore"
-        )
+        try:
+            return data.decode(
+                "utf-8",
+                errors="ignore"
+            )
 
+        except Exception:
+            return ""
+
+    # --------------------------------------------------------
     # DOCX
+    # --------------------------------------------------------
+
     if filename.endswith(".docx"):
 
         try:
@@ -324,21 +601,34 @@ def extract_text_from_upload(uploaded_file):
                 io.BytesIO(data)
             )
 
+            paragraphs = []
+
+            for paragraph in document.paragraphs:
+
+                text = paragraph.text.strip()
+
+                if text:
+                    paragraphs.append(text)
+
             return "\n".join(
-                p.text
-                for p in document.paragraphs
-                if p.text.strip()
+                paragraphs
             )
 
-        except Exception as e:
+        except Exception as error:
 
-            raise Exception(
-                f"Could not read DOCX file: {e}"
+            st.error(
+                f"Could not read DOCX file: {error}"
             )
 
+            return ""
+
+    # --------------------------------------------------------
     # PDF
+    # --------------------------------------------------------
+
     if filename.endswith(".pdf"):
 
+        # First try pypdf
         try:
 
             from pypdf import PdfReader
@@ -351,14 +641,23 @@ def extract_text_from_upload(uploaded_file):
 
             for page in reader.pages:
 
-                text = page.extract_text()
+                try:
 
-                if text:
+                    text = (
+                        page.extract_text()
+                        or ""
+                    )
+
                     pages.append(text)
 
-            extracted = "\n".join(pages)
+                except Exception:
+                    continue
 
-            if extracted.strip():
+            extracted = "\n".join(
+                pages
+            ).strip()
+
+            if extracted:
                 return extracted
 
         except Exception:
@@ -370,7 +669,9 @@ def extract_text_from_upload(uploaded_file):
             from pdf2image import convert_from_bytes
             import pytesseract
 
-            images = convert_from_bytes(data)
+            images = convert_from_bytes(
+                data
+            )
 
             pages = []
 
@@ -380,75 +681,96 @@ def extract_text_from_upload(uploaded_file):
                     image
                 )
 
-                if text.strip():
+                if text:
                     pages.append(text)
 
-            extracted = "\n".join(pages)
+            extracted = "\n".join(
+                pages
+            ).strip()
 
-            if extracted.strip():
+            if extracted:
                 return extracted
 
-        except Exception as e:
+        except Exception:
+            pass
 
-            raise Exception(
-                "Could not read PDF. "
-                "Please make sure pypdf is included "
-                "in requirements.txt. "
-                f"Details: {e}"
-            )
-
-        raise Exception(
-            "The PDF contains no readable text."
+        st.error(
+            "Could not read the PDF. "
+            "Please install pypdf or upload the quiz "
+            "as DOCX or TXT."
         )
 
-    # Excel
-    if filename.endswith(".xlsx") or filename.endswith(".xls"):
+        return ""
+
+    # --------------------------------------------------------
+    # EXCEL
+    # --------------------------------------------------------
+
+    if (
+        filename.endswith(".xlsx")
+        or filename.endswith(".xls")
+    ):
 
         try:
 
-            excel_file = pd.ExcelFile(
+            excel = pd.ExcelFile(
                 io.BytesIO(data)
             )
 
-            all_text = []
+            sheets = []
 
-            for sheet in excel_file.sheet_names:
+            for sheet in excel.sheet_names:
 
                 df = pd.read_excel(
-                    excel_file,
+                    io.BytesIO(data),
                     sheet_name=sheet,
                     header=None
                 )
 
-                for row in df.values:
-
-                    row_text = " ".join(
-                        str(x)
-                        for x in row
-                        if pd.notna(x)
+                sheets.append(
+                    df.astype(str).to_string(
+                        index=False,
+                        header=False
                     )
+                )
 
-                    if row_text.strip():
-                        all_text.append(row_text)
-
-            return "\n".join(all_text)
-
-        except Exception as e:
-
-            raise Exception(
-                f"Could not read Excel file: {e}"
+            return "\n".join(
+                sheets
             )
 
-    raise Exception(
-        "Unsupported file type."
-    )
+        except Exception as error:
+
+            st.error(
+                f"Could not read Excel file: {error}"
+            )
+
+            return ""
+
+    return ""
 
 
 # ============================================================
 # QUESTION EXTRACTION
 # ============================================================
 
+def clean_question(text):
+
+    text = re.sub(
+        r"^\s*(?:question\s*)?"
+        r"(?:q\s*)?"
+        r"\d+\s*[\.\):\-]\s*",
+        "",
+        text,
+        flags=re.IGNORECASE
+    )
+
+    return text.strip()
+
+
 def extract_questions(text):
+
+    if not text:
+        return []
 
     text = text.replace(
         "\r\n",
@@ -468,157 +790,588 @@ def extract_questions(text):
 
     questions = []
 
-    pattern = re.compile(
-        r"^(?:q(?:uestion)?\s*)?"
-        r"(\d+)\s*[\.\)\:\-]\s*(.+)$",
+    current = None
+
+    numbered_pattern = re.compile(
+        r"^\s*"
+        r"(?:question\s*)?"
+        r"(?:q\s*)?"
+        r"(\d+)"
+        r"\s*[\.\):\-]\s*"
+        r"(.+)$",
         re.IGNORECASE
     )
 
-    current_question = None
-    current_number = None
-
     for line in lines:
 
-        match = pattern.match(line)
+        match = numbered_pattern.match(
+            line
+        )
 
         if match:
 
-            if current_question:
-
+            if current:
                 questions.append(
-                    (
-                        current_number,
-                        current_question.strip()
-                    )
+                    current.strip()
                 )
 
-            current_number = int(
-                match.group(1)
+            current = match.group(2).strip()
+
+        elif current:
+
+            current += (
+                " "
+                +
+                line
             )
 
-            current_question = match.group(2)
-
-        else:
-
-            if current_question:
-
-                current_question += (
-                    " " + line
-                )
-
-    if current_question:
-
+    if current:
         questions.append(
-            (
-                current_number,
-                current_question.strip()
-            )
+            current.strip()
         )
 
-    # Question mark fallback
-    if len(questions) == 0:
+    questions = [
+        clean_question(q)
+        for q in questions
+        if len(clean_question(q)) > 5
+    ]
 
-        for line in lines:
+    if questions:
+        return questions
 
-            if "?" in line:
+    # --------------------------------------------------------
+    # Question-mark fallback
+    # --------------------------------------------------------
 
-                questions.append(
-                    (
-                        len(questions) + 1,
-                        line.strip()
-                    )
-                )
+    question_lines = []
 
+    for line in lines:
+
+        if "?" in line and len(line) > 10:
+
+            question_lines.append(
+                clean_question(line)
+            )
+
+    if question_lines:
+        return question_lines
+
+    # --------------------------------------------------------
     # Paragraph fallback
-    if len(questions) == 0:
+    # --------------------------------------------------------
 
-        for line in lines:
+    paragraphs = re.split(
+        r"\n\s*\n",
+        text
+    )
 
-            if len(line.split()) >= 5:
+    questions = []
 
-                questions.append(
-                    (
-                        len(questions) + 1,
-                        line
-                    )
+    for paragraph in paragraphs:
+
+        paragraph = paragraph.strip()
+
+        if len(paragraph) >= 15:
+
+            questions.append(
+                clean_question(
+                    paragraph
                 )
+            )
 
     return questions
 
 
 # ============================================================
-# GENERATE 100% TARGET QUESTION
+# INTELLIGENT TOPIC EXTRACTION
+# ============================================================
+
+def extract_core_topic(
+    clo_text
+):
+
+    text = normalize_text(
+        clo_text
+    )
+
+    # Remove common learning-action phrases
+    action_patterns = [
+        r"\bbe able to\b",
+        r"\bwill be able to\b",
+        r"\bwill\b",
+        r"\bapply\b",
+        r"\banalyze\b",
+        r"\banalyse\b",
+        r"\bevaluate\b",
+        r"\bcreate\b",
+        r"\bdevelop\b",
+        r"\bdesign\b",
+        r"\bexplain\b",
+        r"\bdescribe\b",
+        r"\bidentify\b",
+        r"\bdemonstrate\b",
+        r"\bdiscuss\b",
+        r"\bexamine\b",
+        r"\binterpret\b",
+        r"\bunderstand\b",
+        r"\buse\b",
+        r"\bapply\b",
+        r"\bcritically\b",
+        r"\beffectively\b",
+        r"\bappropriately\b",
+        r"\bcompetently\b"
+    ]
+
+    for pattern in action_patterns:
+
+        text = re.sub(
+            pattern,
+            "",
+            text
+        )
+
+    text = re.sub(
+        r"\bstudents?\b",
+        "",
+        text
+    )
+
+    text = re.sub(
+        r"\blearners?\b",
+        "",
+        text
+    )
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
+
+    text = text.strip(
+        " ,.;:-"
+    )
+
+    # Keep reasonable length
+    if len(text) > 220:
+
+        text = text[:220]
+
+        if " " in text:
+            text = text.rsplit(
+                " ",
+                1
+            )[0]
+
+    return text
+
+
+# ============================================================
+# IDENTIFY PLO SKILL
+# ============================================================
+
+def extract_plo_skill(
+    plo_text
+):
+
+    text = normalize_text(
+        plo_text
+    )
+
+    skills = [
+        (
+            [
+                "critical thinking",
+                "critical analysis",
+                "critical reasoning"
+            ],
+            "critical reasoning"
+        ),
+
+        (
+            [
+                "problem solving",
+                "problem-solving"
+            ],
+            "problem-solving"
+        ),
+
+        (
+            [
+                "communication",
+                "communicate"
+            ],
+            "clear communication"
+        ),
+
+        (
+            [
+                "research"
+            ],
+            "evidence from relevant sources"
+        ),
+
+        (
+            [
+                "teamwork",
+                "team work",
+                "collaboration"
+            ],
+            "collaborative work"
+        ),
+
+        (
+            [
+                "decision making",
+                "decision-making"
+            ],
+            "reasoned decision-making"
+        ),
+
+        (
+            [
+                "professional"
+            ],
+            "professional judgment"
+        ),
+
+        (
+            [
+                "ethical"
+            ],
+            "ethical considerations"
+        ),
+
+        (
+            [
+                "technology",
+                "technological"
+            ],
+            "appropriate use of technology"
+        )
+    ]
+
+    for phrases, skill in skills:
+
+        for phrase in phrases:
+
+            if phrase in text:
+                return skill
+
+    return ""
+
+
+# ============================================================
+# REMOVE LABELS FROM GENERATED QUESTION
+# ============================================================
+
+def clean_generated_question(
+    question
+):
+
+    question = re.sub(
+        r"\bCLO\s*\d+\b",
+        "",
+        question,
+        flags=re.IGNORECASE
+    )
+
+    question = re.sub(
+        r"\bPLO\s*\d+\b",
+        "",
+        question,
+        flags=re.IGNORECASE
+    )
+
+    question = re.sub(
+        r"\bCLO\b",
+        "",
+        question,
+        flags=re.IGNORECASE
+    )
+
+    question = re.sub(
+        r"\bPLO\b",
+        "",
+        question,
+        flags=re.IGNORECASE
+    )
+
+    question = re.sub(
+        r"\s+",
+        " ",
+        question
+    )
+
+    return question.strip()
+
+
+# ============================================================
+# QUESTION GENERATOR
 # ============================================================
 
 def generate_target_question(
-    clo_code,
     clo_text,
-    plo_code,
     plo_text,
     bloom
 ):
 
-    action = BLOOM_ACTION[bloom]
+    topic = extract_core_topic(
+        clo_text
+    )
+
+    if not topic:
+        topic = "the topic under study"
+
+    skill = extract_plo_skill(
+        plo_text
+    )
+
+    # --------------------------------------------------------
+    # REMEMBER
+    # --------------------------------------------------------
 
     if bloom == "Remember":
 
         question = (
-            f"{action} the key concept or knowledge "
-            f"described in {clo_code}: {clo_text}. "
-            f"In your answer, demonstrate the knowledge "
-            f"relevant to {plo_code}: {plo_text}."
+            f"Define {topic} and identify its main "
+            f"characteristics or components."
         )
+
+    # --------------------------------------------------------
+    # UNDERSTAND
+    # --------------------------------------------------------
 
     elif bloom == "Understand":
 
         question = (
-            f"{action} the concept described in "
-            f"{clo_code}: {clo_text}. "
-            f"Explain your answer using the knowledge "
-            f"required by {plo_code}: {plo_text}."
+            f"Explain {topic} in your own words and "
+            f"illustrate your explanation with a relevant example."
         )
+
+    # --------------------------------------------------------
+    # APPLY
+    # --------------------------------------------------------
 
     elif bloom == "Apply":
 
-        question = (
-            f"{action} the knowledge or skill described "
-            f"in {clo_code}: {clo_text} to the given "
-            f"situation. Show how your response demonstrates "
-            f"{plo_code}: {plo_text}."
-        )
+        if skill:
+
+            question = (
+                f"Consider a realistic situation involving "
+                f"{topic}. Apply the relevant principles to "
+                f"the situation and explain how you would "
+                f"respond using {skill}."
+            )
+
+        else:
+
+            question = (
+                f"Consider a realistic situation involving "
+                f"{topic}. Apply the relevant principles to "
+                f"the situation and explain the steps you "
+                f"would take."
+            )
+
+    # --------------------------------------------------------
+    # ANALYZE
+    # --------------------------------------------------------
 
     elif bloom == "Analyze":
 
-        question = (
-            f"{action} the issue, text, or situation in "
-            f"relation to {clo_code}: {clo_text}. "
-            f"Use evidence to explain your analysis and "
-            f"demonstrate {plo_code}: {plo_text}."
-        )
+        if skill:
+
+            question = (
+                f"Analyze {topic} by examining its key elements, "
+                f"relationships, and underlying factors. Use "
+                f"relevant evidence to support your analysis "
+                f"and demonstrate {skill}."
+            )
+
+        else:
+
+            question = (
+                f"Analyze {topic} by examining its key elements, "
+                f"relationships, and underlying factors. Support "
+                f"your analysis with relevant evidence."
+            )
+
+    # --------------------------------------------------------
+    # EVALUATE
+    # --------------------------------------------------------
 
     elif bloom == "Evaluate":
 
-        question = (
-            f"{action} the issue, text, or solution described "
-            f"in {clo_code}: {clo_text}. "
-            f"Support your judgment with evidence and "
-            f"demonstrate {plo_code}: {plo_text}."
+        if skill:
+
+            question = (
+                f"Evaluate {topic} in a relevant context. "
+                f"Assess its strengths and limitations, "
+                f"justify your judgment with appropriate "
+                f"evidence, and demonstrate {skill}."
+            )
+
+        else:
+
+            question = (
+                f"Evaluate {topic} in a relevant context. "
+                f"Assess its strengths and limitations and "
+                f"justify your judgment with appropriate evidence."
+            )
+
+    # --------------------------------------------------------
+    # CREATE
+    # --------------------------------------------------------
+
+    else:
+
+        if skill:
+
+            question = (
+                f"Design a practical solution or response "
+                f"related to {topic}. Explain your design "
+                f"choices and show how your proposed approach "
+                f"demonstrates {skill}."
+            )
+
+        else:
+
+            question = (
+                f"Design a practical solution or response "
+                f"related to {topic}. Explain your design "
+                f"choices and show how your proposed approach "
+                f"addresses the requirements of the situation."
+            )
+
+    return clean_generated_question(
+        question
+    )
+
+
+# ============================================================
+# SUGGESTION GENERATOR
+# ============================================================
+
+def generate_revision_suggestion(
+    question,
+    clo_text,
+    plo_text,
+    intended_bloom,
+    detected_bloom,
+    clo_score,
+    plo_score,
+    bloom_score
+):
+
+    # --------------------------------------------------------
+    # Generate replacement question
+    # --------------------------------------------------------
+
+    suggested_question = generate_target_question(
+        clo_text,
+        plo_text,
+        intended_bloom
+    )
+
+    # --------------------------------------------------------
+    # Determine whether current item is strong
+    # --------------------------------------------------------
+
+    if (
+        clo_score >= 85
+        and plo_score >= 85
+        and bloom_score >= 85
+    ):
+
+        return (
+            "This question is appropriately constructed for "
+            "the intended content, broader skill, and cognitive "
+            "level. It may be retained as written and provides "
+            "a basis for 100% alignment with the specified "
+            "assessment requirements."
+        )
+
+    # --------------------------------------------------------
+    # Build specific improvement advice
+    # --------------------------------------------------------
+
+    improvements = []
+
+    if clo_score < 60:
+
+        improvements.append(
+            "make the question more directly assess the "
+            "specific content and skill described in the "
+            "intended learning outcome"
+        )
+
+    elif clo_score < 85:
+
+        improvements.append(
+            "make the connection to the intended content "
+            "more explicit"
+        )
+
+    if plo_score < 60:
+
+        improvements.append(
+            "require students to demonstrate the broader "
+            "skill expected from the assessment"
+        )
+
+    elif plo_score < 85:
+
+        improvements.append(
+            "strengthen the broader skill demonstrated "
+            "through the response"
+        )
+
+    if bloom_score < 70:
+
+        improvements.append(
+            f"raise the cognitive demand to the "
+            f"{intended_bloom} level"
+        )
+
+    elif bloom_score < 85:
+
+        improvements.append(
+            f"make the expected {intended_bloom.lower()}-level "
+            f"thinking more explicit"
+        )
+
+    if detected_bloom == "Needs Review":
+
+        improvements.append(
+            "use a clear action that makes the expected "
+            "thinking process measurable"
+        )
+
+    if improvements:
+
+        advice = (
+            "Revise the question to "
+            + "; ".join(improvements)
+            + "."
         )
 
     else:
 
-        question = (
-            f"{action} a response, solution, product, or "
-            f"argument that directly addresses {clo_code}: "
-            f"{clo_text}. Your work should demonstrate "
-            f"{plo_code}: {plo_text}."
+        advice = (
+            "Refine the wording so that the expected "
+            "student response is more specific and measurable."
         )
 
-    return question
+    return (
+        advice
+        + "\n\n"
+        + "Suggested question:\n"
+        + suggested_question
+    )
 
 
 # ============================================================
-# ANALYZE QUESTIONS
+# QUESTION ANALYSIS
 # ============================================================
 
 def analyze_questions(
@@ -628,165 +1381,314 @@ def analyze_questions(
     intended_bloom
 ):
 
-    rows = []
+    results = []
 
-    for number, question in questions:
+    for number, question in enumerate(
+        questions,
+        start=1
+    ):
 
-        # CLO
-        clo_scores = []
+        # ----------------------------------------------------
+        # CLO matching
+        # ----------------------------------------------------
 
-        for clo in clos:
+        clo_matches = []
 
-            score, evidence = outcome_similarity(
+        for code, description in clos.items():
+
+            score = outcome_similarity(
                 question,
-                clo["text"]
+                description
             )
 
-            clo_scores.append(
-                {
-                    "code": clo["code"],
-                    "score": score,
-                    "evidence": evidence
-                }
-            )
+            clo_matches.append({
+                "code": code,
+                "description": description,
+                "score": score
+            })
 
-        best_clo = max(
-            clo_scores,
-            key=lambda x: x["score"]
+        clo_matches.sort(
+            key=lambda x: x["score"],
+            reverse=True
         )
 
-        # PLO
-        plo_scores = []
+        best_clo = clo_matches[0]
 
-        for plo in plos:
+        # ----------------------------------------------------
+        # PLO matching
+        # ----------------------------------------------------
 
-            score, evidence = outcome_similarity(
+        plo_matches = []
+
+        for code, description in plos.items():
+
+            score = outcome_similarity(
                 question,
-                plo["text"]
+                description
             )
 
-            plo_scores.append(
-                {
-                    "code": plo["code"],
-                    "score": score,
-                    "evidence": evidence
-                }
-            )
+            plo_matches.append({
+                "code": code,
+                "description": description,
+                "score": score
+            })
 
-        best_plo = max(
-            plo_scores,
-            key=lambda x: x["score"]
+        plo_matches.sort(
+            key=lambda x: x["score"],
+            reverse=True
         )
 
-        # Bloom
-        detected_bloom = detect_bloom(
+        best_plo = plo_matches[0]
+
+        # ----------------------------------------------------
+        # Bloom detection
+        # ----------------------------------------------------
+
+        bloom_result = detect_bloom(
             question
         )
+
+        detected_bloom = bloom_result[
+            "level"
+        ]
 
         bloom_score = bloom_alignment(
             intended_bloom,
             detected_bloom
         )
 
+        # ----------------------------------------------------
+        # Combined score
+        # ----------------------------------------------------
+
         combined = (
             best_clo["score"] * 0.35
-            + best_plo["score"] * 0.25
-            + bloom_score * 0.40
+            +
+            best_plo["score"] * 0.25
+            +
+            bloom_score * 0.40
         )
 
-        # Generate target question
-        target_question = generate_target_question(
-            best_clo["code"],
-            next(
-                c["text"]
-                for c in clos
-                if c["code"] == best_clo["code"]
-            ),
-            best_plo["code"],
-            next(
-                p["text"]
-                for p in plos
-                if p["code"] == best_plo["code"]
-            ),
-            intended_bloom
+        combined = round(
+            min(combined, 100),
+            1
         )
 
-        # Suggestions
-        suggestions = []
+        # ----------------------------------------------------
+        # Suggestion
+        # ----------------------------------------------------
 
-        if (
-            best_clo["score"] < 100
-            or best_plo["score"] < 100
-            or bloom_score < 100
-        ):
-
-            suggestions.append(
-                f"Revise Q{number} to directly assess "
-                f"{best_clo['code']}, demonstrate "
-                f"{best_plo['code']}, and target the "
-                f"{intended_bloom} level."
-            )
-
-            suggestions.append(
-                f"Suggested question: {target_question}"
-            )
-
-            suggestions.append(
-                "Target alignment after revision: "
-                "CLO 100% | PLO 100% | Bloom 100% | "
-                "Overall 100%"
-            )
-
-        else:
-
-            suggestions.append(
-                "Already strongly aligned. "
-                "No major revision required."
-            )
-
-            suggestions.append(
-                "Target alignment: 100%"
-            )
-
-        suggestion_text = " ".join(
-            suggestions
+        suggestion = generate_revision_suggestion(
+            question=question,
+            clo_text=best_clo["description"],
+            plo_text=best_plo["description"],
+            intended_bloom=intended_bloom,
+            detected_bloom=detected_bloom,
+            clo_score=best_clo["score"],
+            plo_score=best_plo["score"],
+            bloom_score=bloom_score
         )
 
-        rows.append(
-            {
-                "Question No.": number,
-                "Question": question,
-                "Best CLO": best_clo["code"],
-                "CLO Alignment %": round(
-                    best_clo["score"],
-                    1
-                ),
-                "Best PLO": best_plo["code"],
-                "PLO Alignment %": round(
-                    best_plo["score"],
-                    1
-                ),
-                "Intended Bloom": intended_bloom,
-                "Detected Bloom": detected_bloom,
-                "Bloom Alignment %": bloom_score,
-                "Combined Alignment %": round(
-                    combined,
-                    1
-                ),
-                "Suggestions": suggestion_text,
-                "Suggested Question": target_question,
-                "Target CLO %": 100,
-                "Target PLO %": 100,
-                "Target Bloom %": 100,
-                "Target Overall %": 100
-            }
-        )
+        results.append({
 
-    return pd.DataFrame(rows)
+            "Question No.": number,
+
+            "Question": question,
+
+            "Best CLO": best_clo["code"],
+
+            "CLO Alignment %": best_clo["score"],
+
+            "Best PLO": best_plo["code"],
+
+            "PLO Alignment %": best_plo["score"],
+
+            "Intended Bloom": intended_bloom,
+
+            "Detected Bloom": detected_bloom,
+
+            "Bloom Alignment %": bloom_score,
+
+            "Combined Alignment %": combined,
+
+            "Suggestion": suggestion
+        })
+
+    return results
 
 
 # ============================================================
-# TITLE
+# CLO ANALYSIS
+# ============================================================
+
+def calculate_clo_analysis(
+    results,
+    clos
+):
+
+    rows = []
+
+    for code, description in clos.items():
+
+        relevant = [
+            row
+            for row in results
+            if row["Best CLO"] == code
+        ]
+
+        if relevant:
+
+            alignment = sum(
+                row["CLO Alignment %"]
+                for row in relevant
+            ) / len(relevant)
+
+        else:
+
+            alignment = 0
+
+        rows.append({
+
+            "CLO": code,
+
+            "Description": description,
+
+            "Alignment %": round(
+                alignment,
+                1
+            ),
+
+            "Questions": len(
+                relevant
+            )
+        })
+
+    return pd.DataFrame(
+        rows
+    )
+
+
+# ============================================================
+# PLO ANALYSIS
+# ============================================================
+
+def calculate_plo_analysis(
+    results,
+    plos
+):
+
+    rows = []
+
+    for code, description in plos.items():
+
+        relevant = [
+            row
+            for row in results
+            if row["Best PLO"] == code
+        ]
+
+        if relevant:
+
+            alignment = sum(
+                row["PLO Alignment %"]
+                for row in relevant
+            ) / len(relevant)
+
+        else:
+
+            alignment = 0
+
+        rows.append({
+
+            "PLO": code,
+
+            "Description": description,
+
+            "Alignment %": round(
+                alignment,
+                1
+            ),
+
+            "Questions": len(
+                relevant
+            )
+        })
+
+    return pd.DataFrame(
+        rows
+    )
+
+
+# ============================================================
+# BLOOM ANALYSIS
+# ============================================================
+
+def calculate_bloom_analysis(
+    results
+):
+
+    rows = []
+
+    for level in BLOOM_LEVELS:
+
+        relevant = [
+            row
+            for row in results
+            if row["Detected Bloom"] == level
+        ]
+
+        if relevant:
+
+            alignment = sum(
+                row["Bloom Alignment %"]
+                for row in relevant
+            ) / len(relevant)
+
+        else:
+
+            alignment = 0
+
+        rows.append({
+
+            "Bloom Level": level,
+
+            "Questions": len(
+                relevant
+            ),
+
+            "Alignment %": round(
+                alignment,
+                1
+            )
+        })
+
+    return pd.DataFrame(
+        rows
+    )
+
+
+# ============================================================
+# SESSION STATE
+# ============================================================
+
+if "analysis_results" not in st.session_state:
+    st.session_state.analysis_results = None
+
+if "analysis_clos" not in st.session_state:
+    st.session_state.analysis_clos = {}
+
+if "analysis_plos" not in st.session_state:
+    st.session_state.analysis_plos = {}
+
+if "analysis_intended_bloom" not in st.session_state:
+    st.session_state.analysis_intended_bloom = "Analyze"
+
+if "analysis_questions" not in st.session_state:
+    st.session_state.analysis_questions = []
+
+
+# ============================================================
+# APPLICATION TITLE
 # ============================================================
 
 st.title(
@@ -794,24 +1696,17 @@ st.title(
 )
 
 st.write(
-    "Enter the course outcomes, program outcomes, "
-    "and intended Bloom's level. Upload a quiz and "
-    "the tool will analyze every question and suggest "
-    "revisions designed for 100% alignment."
+    "Check whether your quiz questions appropriately reflect "
+    "the intended learning outcomes and Bloom's cognitive level."
 )
 
-st.info(
-    "The suggested questions are **100%-target questions**. "
-    "They are designed to explicitly address the selected "
-    "CLO, PLO, and intended Bloom level."
-)
 
 # ============================================================
-# ASSESSMENT INFORMATION
+# 1. ASSESSMENT INFORMATION
 # ============================================================
 
-st.header(
-    "1️⃣ Assessment Information"
+st.subheader(
+    "1. Assessment Information"
 )
 
 col1, col2 = st.columns(2)
@@ -820,173 +1715,205 @@ with col1:
 
     course_name = st.text_input(
         "Course Name",
-        placeholder="e.g., English I"
+        placeholder="Example: English I"
     )
 
 with col2:
 
     assessment_name = st.text_input(
         "Assessment Name",
-        placeholder="e.g., Quiz 1"
+        placeholder="Example: Quiz 1"
     )
 
+
 # ============================================================
-# CLOs
+# 2. CLO ENTRY
 # ============================================================
 
-st.header(
-    "2️⃣ Enter CLOs"
+st.subheader(
+    "2. Enter CLOs"
+)
+
+st.caption(
+    "Enter the learning outcomes that the quiz is intended "
+    "to assess."
 )
 
 num_clos = st.number_input(
     "Number of CLOs",
     min_value=1,
-    max_value=20,
-    value=3,
+    max_value=10,
+    value=2,
     step=1
 )
 
-clos = []
+clos = {}
 
-for i in range(int(num_clos)):
+for i in range(
+    1,
+    int(num_clos) + 1
+):
 
     col1, col2 = st.columns(
-        [1, 4]
+        [1, 5]
     )
 
     with col1:
 
-        code = st.text_input(
-            f"CLO {i + 1} Code",
-            value=f"CLO{i + 1}",
-            key=f"clo_code_{i}"
+        st.text_input(
+            "Code",
+            value=f"CLO{i}",
+            key=f"clo_code_{i}",
+            disabled=True
         )
 
     with col2:
 
-        description = st.text_input(
-            f"CLO {i + 1} Description",
+        description = st.text_area(
+            f"CLO {i} Description",
             key=f"clo_description_{i}",
-            placeholder="Enter the complete CLO statement"
+            height=80,
+            placeholder=(
+                "Example: Analyze patterns of organization "
+                "in academic paragraphs."
+            )
         )
 
-    if description.strip():
+        if description.strip():
 
-        clos.append(
-            {
-                "code": code.strip(),
-                "text": description.strip()
-            }
-        )
+            clos[
+                f"CLO{i}"
+            ] = description.strip()
+
 
 # ============================================================
-# PLOs
+# 3. PLO ENTRY
 # ============================================================
 
-st.header(
-    "3️⃣ Enter PLOs"
+st.subheader(
+    "3. Enter PLOs"
+)
+
+st.caption(
+    "Enter the broader learning outcomes or graduate "
+    "attributes relevant to the assessment."
 )
 
 num_plos = st.number_input(
     "Number of PLOs",
     min_value=1,
-    max_value=20,
-    value=3,
+    max_value=10,
+    value=2,
     step=1
 )
 
-plos = []
+plos = {}
 
-for i in range(int(num_plos)):
+for i in range(
+    1,
+    int(num_plos) + 1
+):
 
     col1, col2 = st.columns(
-        [1, 4]
+        [1, 5]
     )
 
     with col1:
 
-        code = st.text_input(
-            f"PLO {i + 1} Code",
-            value=f"PLO{i + 1}",
-            key=f"plo_code_{i}"
+        st.text_input(
+            "Code",
+            value=f"PLO{i}",
+            key=f"plo_code_{i}",
+            disabled=True
         )
 
     with col2:
 
-        description = st.text_input(
-            f"PLO {i + 1} Description",
+        description = st.text_area(
+            f"PLO {i} Description",
             key=f"plo_description_{i}",
-            placeholder="Enter the complete PLO statement"
+            height=80,
+            placeholder=(
+                "Example: Apply analytical and critical "
+                "thinking skills to academic tasks."
+            )
         )
 
-    if description.strip():
+        if description.strip():
 
-        plos.append(
-            {
-                "code": code.strip(),
-                "text": description.strip()
-            }
-        )
+            plos[
+                f"PLO{i}"
+            ] = description.strip()
+
 
 # ============================================================
-# BLOOM
+# 4. INTENDED BLOOM LEVEL
 # ============================================================
 
-st.header(
-    "4️⃣ Intended Bloom's Level"
+st.subheader(
+    "4. Intended Bloom's Level"
 )
 
 intended_bloom = st.selectbox(
     "Select the intended cognitive level",
-    BLOOM_LEVELS
+    BLOOM_LEVELS,
+    index=3
 )
 
-st.write(
-    f"**Selected Bloom level:** {intended_bloom}"
-)
 
 # ============================================================
-# UPLOAD
+# 5. QUIZ UPLOAD
 # ============================================================
 
-st.header(
-    "5️⃣ Upload Quiz"
+st.subheader(
+    "5. Upload Quiz"
 )
 
 uploaded_file = st.file_uploader(
-    "Upload PDF, DOCX, TXT, XLSX or XLS",
+    "Upload your quiz",
     type=[
         "pdf",
         "docx",
         "txt",
         "xlsx",
         "xls"
-    ]
+    ],
+    help=(
+        "For best results, use numbered questions such as "
+        "1., 2., 3. or Q1., Q2., Q3."
+    )
 )
 
+
 # ============================================================
-# ANALYZE
+# ANALYZE BUTTON
 # ============================================================
 
 st.divider()
 
-analyze_button = st.button(
+analyze_clicked = st.button(
     "🔍 Analyze Quiz",
     type="primary",
     use_container_width=True
 )
 
+
 # ============================================================
-# MAIN ANALYSIS
+# RUN ANALYSIS
 # ============================================================
 
-if analyze_button:
+if analyze_clicked:
+
+    # --------------------------------------------------------
+    # Validation
+    # --------------------------------------------------------
 
     if not course_name.strip():
 
         st.error(
             "Please enter the course name."
         )
+
         st.stop()
 
     if not assessment_name.strip():
@@ -994,96 +1921,120 @@ if analyze_button:
         st.error(
             "Please enter the assessment name."
         )
+
         st.stop()
 
-    if len(clos) == 0:
+    if not clos:
 
         st.error(
             "Please enter at least one CLO."
         )
+
         st.stop()
 
-    if len(plos) == 0:
+    if not plos:
 
         st.error(
             "Please enter at least one PLO."
         )
+
         st.stop()
 
     if uploaded_file is None:
 
         st.error(
-            "Please upload a quiz."
+            "Please upload the quiz."
         )
+
         st.stop()
 
     # --------------------------------------------------------
-    # READ FILE
+    # Read file
     # --------------------------------------------------------
 
-    try:
+    with st.spinner(
+        "Reading and analyzing the quiz..."
+    ):
 
-        with st.spinner(
-            "Reading quiz..."
-        ):
+        quiz_text = extract_text_from_upload(
+            uploaded_file
+        )
 
-            extracted_text = (
-                extract_text_from_upload(
-                    uploaded_file
-                )
+        if not quiz_text.strip():
+
+            st.error(
+                "No readable text was found in the uploaded file."
             )
 
-    except Exception as e:
+            st.stop()
 
-        st.error(
-            str(e)
+        questions = extract_questions(
+            quiz_text
         )
-        st.stop()
 
-    if not extracted_text.strip():
+        if not questions:
 
-        st.error(
-            "No readable text was found."
+            st.error(
+                "No questions could be detected. "
+                "Please upload a quiz with numbered questions "
+                "or clearly separated question statements."
+            )
+
+            st.stop()
+
+        results = analyze_questions(
+            questions=questions,
+            clos=clos,
+            plos=plos,
+            intended_bloom=intended_bloom
         )
-        st.stop()
 
     # --------------------------------------------------------
-    # QUESTIONS
+    # Store results
     # --------------------------------------------------------
 
-    questions = extract_questions(
-        extracted_text
-    )
+    st.session_state.analysis_results = results
 
-    if len(questions) == 0:
+    st.session_state.analysis_clos = clos
 
-        st.error(
-            "No questions were detected. "
-            "Use numbered questions such as "
-            "1., 2., 3. or questions ending with ?."
-        )
-        st.stop()
+    st.session_state.analysis_plos = plos
 
-    # --------------------------------------------------------
-    # ANALYSIS
-    # --------------------------------------------------------
-
-    results_df = analyze_questions(
-        questions,
-        clos,
-        plos,
+    st.session_state.analysis_intended_bloom = (
         intended_bloom
     )
 
-    # ========================================================
-    # RESULTS
-    # ========================================================
+    st.session_state.analysis_questions = questions
 
-    st.divider()
 
-    st.header(
-        "📊 Quiz Alignment Results"
+# ============================================================
+# DISPLAY RESULTS
+# ============================================================
+
+if st.session_state.analysis_results:
+
+    results = (
+        st.session_state.analysis_results
     )
+
+    clos = (
+        st.session_state.analysis_clos
+    )
+
+    plos = (
+        st.session_state.analysis_plos
+    )
+
+    intended_bloom = (
+        st.session_state.analysis_intended_bloom
+    )
+
+    results_df = pd.DataFrame(
+        results
+    )
+
+    # ========================================================
+    # CALCULATE OVERALL ALIGNMENT
+    # ========================================================
 
     avg_clo = results_df[
         "CLO Alignment %"
@@ -1099,315 +2050,304 @@ if analyze_button:
 
     overall = (
         avg_clo * 0.35
-        + avg_plo * 0.25
-        + avg_bloom * 0.40
+        +
+        avg_plo * 0.25
+        +
+        avg_bloom * 0.40
+    )
+
+    overall = round(
+        min(overall, 100),
+        1
     )
 
     # ========================================================
-    # METRICS
+    # RESULTS HEADER
     # ========================================================
 
-    c1, c2, c3, c4 = st.columns(4)
+    st.divider()
 
-    with c1:
-
-        st.metric(
-            "Overall Alignment",
-            f"{overall:.1f}%"
-        )
-
-    with c2:
-
-        st.metric(
-            "CLO Alignment",
-            f"{avg_clo:.1f}%"
-        )
-
-    with c3:
-
-        st.metric(
-            "PLO Alignment",
-            f"{avg_plo:.1f}%"
-        )
-
-    with c4:
-
-        st.metric(
-            "Bloom Alignment",
-            f"{avg_bloom:.1f}%"
-        )
-
-    st.info(
-        "Current scores measure the alignment of the uploaded "
-        "quiz. The suggested questions are designed to target "
-        "**100% CLO + 100% PLO + 100% Bloom alignment**."
+    st.header(
+        "📊 Quiz Analysis"
     )
 
     # ========================================================
-    # OVERALL GRAPH
+    # GRAPH AT THE TOP
     # ========================================================
 
     st.subheader(
         "📈 Overall Alignment"
     )
 
-    overall_chart = pd.DataFrame(
-        {
-            "Area": [
-                "CLO",
-                "PLO",
-                "Bloom",
-                "Overall"
-            ],
-            "Percentage": [
-                avg_clo,
-                avg_plo,
-                avg_bloom,
-                overall
-            ]
-        }
-    )
+    graph_df = pd.DataFrame({
+
+        "Dimension": [
+            "Overall",
+            "CLO",
+            "PLO",
+            "Bloom"
+        ],
+
+        "Alignment": [
+            round(overall, 1),
+            round(avg_clo, 1),
+            round(avg_plo, 1),
+            round(avg_bloom, 1)
+        ]
+    })
 
     st.bar_chart(
-        overall_chart.set_index(
-            "Area"
+        graph_df.set_index(
+            "Dimension"
         ),
+        y="Alignment",
         use_container_width=True
     )
 
     # ========================================================
-    # CLO BY CLO
+    # NUMERICAL SUMMARY
+    # ========================================================
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+
+        st.metric(
+            "Overall Alignment",
+            f"{overall:.1f}%"
+        )
+
+    with col2:
+
+        st.metric(
+            "CLO Alignment",
+            f"{avg_clo:.1f}%"
+        )
+
+    with col3:
+
+        st.metric(
+            "PLO Alignment",
+            f"{avg_plo:.1f}%"
+        )
+
+    with col4:
+
+        st.metric(
+            "Bloom Alignment",
+            f"{avg_bloom:.1f}%"
+        )
+
+    st.caption(
+        "These percentages evaluate quiz-level alignment with "
+        "the entered learning outcomes and intended cognitive "
+        "level. They are not student attainment percentages."
+    )
+
+    # ========================================================
+    # CLO-BY-CLO ANALYSIS
     # ========================================================
 
     st.divider()
 
-    st.header(
+    st.subheader(
         "🎯 CLO-by-CLO Analysis"
     )
 
-    selected_clo_code = st.selectbox(
-        "Select one CLO",
-        [
-            c["code"]
-            for c in clos
-        ],
-        key="selected_clo"
+    selected_clo = st.selectbox(
+        "Select one CLO to review",
+        list(clos.keys())
     )
 
-    selected_clo = next(
-        c
-        for c in clos
-        if c["code"] == selected_clo_code
-    )
+    selected_clo_description = clos[
+        selected_clo
+    ]
 
-    clo_questions = results_df[
-        results_df["Best CLO"]
-        == selected_clo_code
-    ].copy()
+    selected_clo_rows = [
+        row
+        for row in results
+        if row["Best CLO"] == selected_clo
+    ]
 
-    if len(clo_questions) > 0:
+    if selected_clo_rows:
 
-        clo_alignment = clo_questions[
-            "CLO Alignment %"
-        ].mean()
-
-        coverage = (
-            len(clo_questions)
-            / len(results_df)
-        ) * 100
+        selected_clo_alignment = sum(
+            row["CLO Alignment %"]
+            for row in selected_clo_rows
+        ) / len(
+            selected_clo_rows
+        )
 
     else:
 
-        clo_alignment = 0
-        coverage = 0
+        selected_clo_alignment = 0
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+
+        st.metric(
+            "Alignment",
+            f"{selected_clo_alignment:.1f}%"
+        )
+
+    with col2:
+
+        st.metric(
+            "Questions Mapped",
+            len(selected_clo_rows)
+        )
+
+    with col3:
+
+        st.metric(
+            "Total Questions",
+            len(results)
+        )
 
     st.info(
-        f"**{selected_clo_code}:** "
-        f"{selected_clo['text']}"
+        f"**{selected_clo}:** "
+        f"{selected_clo_description}"
     )
 
-    c1, c2, c3 = st.columns(3)
+    if selected_clo_rows:
 
-    with c1:
-
-        st.metric(
-            "Current CLO Alignment",
-            f"{clo_alignment:.1f}%"
+        st.write(
+            "### Questions Assessing This Outcome"
         )
 
-    with c2:
+        selected_clo_table = pd.DataFrame([
 
-        st.metric(
-            "Questions",
-            len(clo_questions)
-        )
+            {
+                "Question No.": row[
+                    "Question No."
+                ],
 
-    with c3:
+                "Question": row[
+                    "Question"
+                ],
 
-        st.metric(
-            "Coverage",
-            f"{coverage:.1f}%"
-        )
+                "Alignment %": row[
+                    "CLO Alignment %"
+                ],
 
-    # --------------------------------------------------------
-    # CLO GRAPH
-    # --------------------------------------------------------
+                "Detected Bloom": row[
+                    "Detected Bloom"
+                ]
+            }
 
-    st.subheader(
-        "📊 Selected CLO Graph"
-    )
+            for row in selected_clo_rows
 
-    if len(clo_questions) > 0:
+        ])
 
-        graph = clo_questions[
-            [
-                "Question No.",
-                "CLO Alignment %"
-            ]
-        ].copy()
-
-        graph["Question"] = (
-            "Q"
-            + graph[
-                "Question No."
-            ].astype(str)
-        )
-
-        graph = graph[
-            [
-                "Question",
-                "CLO Alignment %"
-            ]
-        ].set_index(
-            "Question"
-        )
-
-        st.bar_chart(
-            graph,
-            use_container_width=True
+        st.dataframe(
+            selected_clo_table,
+            use_container_width=True,
+            hide_index=True
         )
 
     else:
 
         st.warning(
-            "No question is currently mapped to this CLO."
+            "No question was strongly associated with "
+            "this outcome."
         )
 
-    # --------------------------------------------------------
-    # SELECTED CLO QUESTIONS
-    # --------------------------------------------------------
+        first_plo = list(
+            plos.keys()
+        )[0]
 
-    st.subheader(
-        f"📝 Questions for {selected_clo_code}"
-    )
-
-    if len(clo_questions) > 0:
-
-        st.dataframe(
-            clo_questions[
-                [
-                    "Question No.",
-                    "Question",
-                    "CLO Alignment %",
-                    "Best PLO",
-                    "PLO Alignment %",
-                    "Intended Bloom",
-                    "Detected Bloom",
-                    "Bloom Alignment %"
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True
+        suggested_question = (
+            generate_target_question(
+                selected_clo_description,
+                plos[first_plo],
+                intended_bloom
+            )
         )
 
-    # --------------------------------------------------------
-    # CLO SUGGESTED QUESTIONS
-    # --------------------------------------------------------
-
-    st.subheader(
-        "💡 Suggested Questions — Target 100%"
-    )
-
-    if len(clo_questions) > 0:
-
-        for _, row in clo_questions.iterrows():
-
-            st.markdown(
-                f"### Q{int(row['Question No.'])}"
-            )
-
-            st.write(
-                f"**Current question:** "
-                f"{row['Question']}"
-            )
-
-            c1, c2, c3, c4 = st.columns(4)
-
-            with c1:
-
-                st.metric(
-                    "Current CLO",
-                    f"{row['CLO Alignment %']:.1f}%"
-                )
-
-            with c2:
-
-                st.metric(
-                    "Current PLO",
-                    f"{row['PLO Alignment %']:.1f}%"
-                )
-
-            with c3:
-
-                st.metric(
-                    "Current Bloom",
-                    f"{row['Bloom Alignment %']:.1f}%"
-                )
-
-            with c4:
-
-                st.metric(
-                    "Target",
-                    "100%"
-                )
-
-            st.info(
-                f"**Suggested Question:** "
-                f"{row['Suggested Question']}"
-            )
-
-            st.success(
-                "🎯 Target after revision: "
-                "**CLO 100% | PLO 100% | Bloom 100% | "
-                "Overall 100%**"
-            )
-
-            st.divider()
-
-    else:
-
-        # Generate one question for uncovered CLO
-        selected_plo = plos[0]
-
-        suggestion = generate_target_question(
-            selected_clo["code"],
-            selected_clo["text"],
-            selected_plo["code"],
-            selected_plo["text"],
-            intended_bloom
+        st.write(
+            "### Suggested Question"
         )
 
         st.info(
-            f"**Suggested question for "
-            f"{selected_clo_code}:**\n\n"
-            f"{suggestion}"
+            suggested_question
         )
 
-        st.success(
-            "🎯 Target: "
-            "CLO 100% | PLO 100% | Bloom 100% | "
-            "Overall 100%"
-        )
+    # ========================================================
+    # PLO ANALYSIS
+    # ========================================================
+
+    st.divider()
+
+    st.subheader(
+        "📌 PLO Analysis"
+    )
+
+    plo_df = calculate_plo_analysis(
+        results,
+        plos
+    )
+
+    st.dataframe(
+        plo_df,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    plo_chart = plo_df[
+        [
+            "PLO",
+            "Alignment %"
+        ]
+    ].set_index(
+        "PLO"
+    )
+
+    st.bar_chart(
+        plo_chart,
+        y="Alignment %",
+        use_container_width=True
+    )
+
+    # ========================================================
+    # BLOOM ANALYSIS
+    # ========================================================
+
+    st.divider()
+
+    st.subheader(
+        "🧠 Bloom's Level Analysis"
+    )
+
+    st.write(
+        f"**Intended Bloom's Level:** "
+        f"{intended_bloom}"
+    )
+
+    bloom_df = calculate_bloom_analysis(
+        results
+    )
+
+    st.dataframe(
+        bloom_df,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    bloom_chart = bloom_df[
+        [
+            "Bloom Level",
+            "Questions"
+        ]
+    ].set_index(
+        "Bloom Level"
+    )
+
+    st.bar_chart(
+        bloom_chart,
+        y="Questions",
+        use_container_width=True
+    )
 
     # ========================================================
     # COMPLETE QUESTION ANALYSIS
@@ -1415,14 +2355,17 @@ if analyze_button:
 
     st.divider()
 
-    st.header(
+    st.subheader(
         "📝 Complete Question Analysis"
     )
 
-    # Important:
-    # Suggestions are kept in ONE column.
+    st.caption(
+        "The Suggestions column provides a specific improvement "
+        "and, where needed, a professionally constructed "
+        "replacement question."
+    )
 
-    complete_table = results_df[
+    display_df = results_df[
         [
             "Question No.",
             "Question",
@@ -1434,99 +2377,187 @@ if analyze_button:
             "Detected Bloom",
             "Bloom Alignment %",
             "Combined Alignment %",
-            "Suggestions"
+            "Suggestion"
         ]
     ].copy()
 
     st.dataframe(
-        complete_table,
+
+        display_df,
+
         use_container_width=True,
-        hide_index=True
+
+        hide_index=True,
+
+        height=650,
+
+        column_config={
+
+            "Question No.":
+
+                st.column_config.NumberColumn(
+                    "Question No."
+                ),
+
+            "Question":
+
+                st.column_config.TextColumn(
+                    "Question",
+                    width="large"
+                ),
+
+            "Best CLO":
+
+                st.column_config.TextColumn(
+                    "Best CLO"
+                ),
+
+            "CLO Alignment %":
+
+                st.column_config.ProgressColumn(
+                    "CLO Alignment %",
+                    min_value=0,
+                    max_value=100,
+                    format="%.1f%%"
+                ),
+
+            "Best PLO":
+
+                st.column_config.TextColumn(
+                    "Best PLO"
+                ),
+
+            "PLO Alignment %":
+
+                st.column_config.ProgressColumn(
+                    "PLO Alignment %",
+                    min_value=0,
+                    max_value=100,
+                    format="%.1f%%"
+                ),
+
+            "Intended Bloom":
+
+                st.column_config.TextColumn(
+                    "Intended Bloom"
+                ),
+
+            "Detected Bloom":
+
+                st.column_config.TextColumn(
+                    "Detected Bloom"
+                ),
+
+            "Bloom Alignment %":
+
+                st.column_config.ProgressColumn(
+                    "Bloom Alignment %",
+                    min_value=0,
+                    max_value=100,
+                    format="%.1f%%"
+                ),
+
+            "Combined Alignment %":
+
+                st.column_config.ProgressColumn(
+                    "Combined Alignment %",
+                    min_value=0,
+                    max_value=100,
+                    format="%.1f%%"
+                ),
+
+            "Suggestion":
+
+                st.column_config.TextColumn(
+                    "Suggestions",
+                    width="large"
+                )
+        }
     )
 
     # ========================================================
-    # 100% TARGET SUMMARY
+    # INDIVIDUAL QUESTION REVIEW
     # ========================================================
 
     st.divider()
 
-    st.header(
-        "🎯 100% Alignment Target"
+    st.subheader(
+        "🔎 Individual Question Review"
+    )
+
+    question_numbers = [
+        row[
+            "Question No."
+        ]
+        for row in results
+    ]
+
+    selected_question_number = st.selectbox(
+        "Select a question",
+        question_numbers
+    )
+
+    selected_row = next(
+        row
+        for row in results
+        if row[
+            "Question No."
+        ]
+        ==
+        selected_question_number
+    )
+
+    st.markdown(
+        f"### Question "
+        f"{selected_question_number}"
     )
 
     st.write(
-        "The tool uses the participant's entered CLO, PLO, "
-        "and intended Bloom level to design a revised question "
-        "that explicitly targets all three requirements."
-    )
-
-    target_table = pd.DataFrame(
-        {
-            "Alignment Area": [
-                "CLO",
-                "PLO",
-                "Bloom",
-                "Overall"
-            ],
-            "Target": [
-                "100%",
-                "100%",
-                "100%",
-                "100%"
-            ]
-        }
-    )
-
-    st.dataframe(
-        target_table,
-        use_container_width=True,
-        hide_index=True
-    )
-
-    st.success(
-        "The suggested question is a 100%-alignment target. "
-        "The tool explicitly incorporates the selected CLO, "
-        "PLO, and Bloom cognitive demand into the suggested "
-        "question."
-    )
-
-    # ========================================================
-    # BLOOM ANALYSIS
-    # ========================================================
-
-    st.divider()
-
-    st.header(
-        "🧠 Bloom's Taxonomy Analysis"
-    )
-
-    bloom_counts = (
-        results_df[
-            "Detected Bloom"
+        selected_row[
+            "Question"
         ]
-        .value_counts()
-        .reindex(
-            BLOOM_LEVELS,
-            fill_value=0
+    )
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+
+        st.metric(
+            "CLO Alignment",
+            f"{selected_row['CLO Alignment %']:.1f}%"
         )
+
+    with col2:
+
+        st.metric(
+            "PLO Alignment",
+            f"{selected_row['PLO Alignment %']:.1f}%"
+        )
+
+    with col3:
+
+        st.metric(
+            "Detected Bloom",
+            selected_row[
+                "Detected Bloom"
+            ]
+        )
+
+    with col4:
+
+        st.metric(
+            "Combined Alignment",
+            f"{selected_row['Combined Alignment %']:.1f}%"
+        )
+
+    st.write(
+        "### 💡 Suggestion"
     )
 
-    st.bar_chart(
-        bloom_counts,
-        use_container_width=True
-    )
-
-    bloom_table = pd.DataFrame(
-        {
-            "Bloom Level": bloom_counts.index,
-            "Questions": bloom_counts.values
-        }
-    )
-
-    st.dataframe(
-        bloom_table,
-        use_container_width=True,
-        hide_index=True
+    st.info(
+        selected_row[
+            "Suggestion"
+        ]
     )
 
     # ========================================================
@@ -1535,97 +2566,61 @@ if analyze_button:
 
     st.divider()
 
-    st.header(
-        "🔎 Questions Requiring Revision"
+    st.subheader(
+        "⚠️ Questions Needing Attention"
     )
 
     weak_questions = results_df[
         results_df[
             "Combined Alignment %"
-        ] < 70
+        ] < 60
     ].copy()
 
-    if len(weak_questions) > 0:
+    if not weak_questions.empty:
 
-        st.warning(
-            f"{len(weak_questions)} question(s) "
-            "have alignment below 70%."
+        weak_display = weak_questions[
+            [
+                "Question No.",
+                "Question",
+                "Best CLO",
+                "Best PLO",
+                "Detected Bloom",
+                "Combined Alignment %",
+                "Suggestion"
+            ]
+        ]
+
+        st.dataframe(
+            weak_display,
+            use_container_width=True,
+            hide_index=True,
+            height=450
         )
-
-        for _, row in weak_questions.iterrows():
-
-            with st.expander(
-                f"Q{int(row['Question No.'])} "
-                f"— Current Score: "
-                f"{row['Combined Alignment %']:.1f}%"
-            ):
-
-                st.write(
-                    f"**Current Question:** "
-                    f"{row['Question']}"
-                )
-
-                st.write(
-                    f"**CLO:** {row['Best CLO']} "
-                    f"({row['CLO Alignment %']:.1f}%)"
-                )
-
-                st.write(
-                    f"**PLO:** {row['Best PLO']} "
-                    f"({row['PLO Alignment %']:.1f}%)"
-                )
-
-                st.write(
-                    f"**Intended Bloom:** "
-                    f"{row['Intended Bloom']}"
-                )
-
-                st.write(
-                    f"**Detected Bloom:** "
-                    f"{row['Detected Bloom']}"
-                )
-
-                st.write(
-                    f"**Bloom Alignment:** "
-                    f"{row['Bloom Alignment %']:.1f}%"
-                )
-
-                st.subheader(
-                    "Suggested 100% Target Question"
-                )
-
-                st.info(
-                    row["Suggested Question"]
-                )
-
-                st.success(
-                    "Target: CLO 100% | PLO 100% | "
-                    "Bloom 100% | Overall 100%"
-                )
 
     else:
 
         st.success(
-            "All questions currently have an alignment "
-            "score of 70% or higher."
+            "No questions fell below the review threshold."
         )
 
     # ========================================================
-    # DOWNLOAD
+    # CSV EXPORT
     # ========================================================
 
     st.divider()
 
-    st.header(
-        "📥 Download Results"
+    st.subheader(
+        "⬇️ Export Analysis"
     )
 
     csv_data = results_df.to_csv(
         index=False
-    ).encode("utf-8")
+    ).encode(
+        "utf-8"
+    )
 
     st.download_button(
-        "⬇️ Download Complete Analysis",
+        "Download Question Analysis CSV",
         data=csv_data,
         file_name=(
             "OBE_Quiz_Alignment_Analysis.csv"
@@ -1635,7 +2630,7 @@ if analyze_button:
     )
 
     # ========================================================
-    # FINAL
+    # FINAL SUMMARY
     # ========================================================
 
     st.divider()
@@ -1653,21 +2648,28 @@ if analyze_button:
     )
 
     st.write(
-        f"**Questions analyzed:** {len(results_df)}"
+        f"**Questions analyzed:** "
+        f"{len(results_df)}"
     )
 
     st.write(
-        f"**Intended Bloom:** {intended_bloom}"
+        f"**Intended Bloom's Level:** "
+        f"{intended_bloom}"
     )
 
     st.write(
-        f"**Current overall alignment:** "
+        f"**Overall Alignment:** "
         f"{overall:.1f}%"
     )
 
     st.info(
-        "Use the suggested questions as revised assessment "
-        "items. They are constructed to explicitly target "
-        "100% alignment with the selected CLO, PLO, and "
-        "Bloom level."
+        "Review the question-level suggestions to strengthen "
+        "the connection between assessment content, intended "
+        "learning outcomes, and cognitive demand."
+    )
+
+    st.success(
+        "The analysis is complete. "
+        "The detailed question analysis can be downloaded "
+        "using the CSV button above."
     )
