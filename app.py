@@ -7,7 +7,7 @@ import streamlit as st
 
 
 # ============================================================
-# OBE QUIZ CHECKER
+# PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
@@ -51,7 +51,7 @@ except Exception:
 # CONSTANTS
 # ============================================================
 
-ATTAINED_THRESHOLD = 75.0
+ATTAINED_THRESHOLD = 75
 
 BLOOM_LEVELS = [
     "Remember",
@@ -59,7 +59,7 @@ BLOOM_LEVELS = [
     "Apply",
     "Analyze",
     "Evaluate",
-    "Create",
+    "Create"
 ]
 
 BLOOM_ORDER = {
@@ -68,7 +68,78 @@ BLOOM_ORDER = {
     "apply": 3,
     "analyze": 4,
     "evaluate": 5,
-    "create": 6,
+    "create": 6
+}
+
+BLOOM_VERBS = {
+    "Remember": [
+        "define",
+        "list",
+        "name",
+        "identify",
+        "state",
+        "recall",
+        "recognize",
+        "label",
+        "match"
+    ],
+    "Understand": [
+        "describe",
+        "explain",
+        "summarize",
+        "classify",
+        "interpret",
+        "discuss",
+        "illustrate",
+        "paraphrase"
+    ],
+    "Apply": [
+        "calculate",
+        "solve",
+        "apply",
+        "demonstrate",
+        "use",
+        "implement",
+        "execute",
+        "compute",
+        "perform",
+        "show"
+    ],
+    "Analyze": [
+        "analyze",
+        "analyse",
+        "compare",
+        "contrast",
+        "differentiate",
+        "examine",
+        "investigate",
+        "categorize",
+        "distinguish",
+        "deconstruct"
+    ],
+    "Evaluate": [
+        "evaluate",
+        "assess",
+        "justify",
+        "critique",
+        "judge",
+        "defend",
+        "argue",
+        "recommend",
+        "appraise"
+    ],
+    "Create": [
+        "design",
+        "create",
+        "develop",
+        "construct",
+        "formulate",
+        "produce",
+        "propose",
+        "generate",
+        "plan",
+        "compose"
+    ]
 }
 
 
@@ -76,25 +147,25 @@ BLOOM_ORDER = {
 # SESSION STATE
 # ============================================================
 
-state_defaults = {
+defaults = {
     "assessment_text": "",
     "questions": [],
     "analysis": [],
     "analysis_complete": False,
     "revision_options": [],
     "revision_question_index": None,
-    "last_overall": None,
     "celebrate_question": False,
     "celebrate_overall": False,
+    "previous_overall": None
 }
 
-for key, value in state_defaults.items():
+for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
 
 # ============================================================
-# TEXT UTILITIES
+# BASIC TEXT FUNCTIONS
 # ============================================================
 
 def clean_text(text):
@@ -114,23 +185,24 @@ def normalize_text(text):
     text = clean_text(text).lower()
     text = re.sub(r"[^a-z0-9\s]", " ", text)
     text = re.sub(r"\s+", " ", text)
-
     return text.strip()
 
 
 def content_words(text):
     stopwords = {
-        "the", "a", "an", "and", "or", "of", "to", "in",
-        "on", "for", "from", "with", "by", "is", "are",
-        "was", "were", "be", "as", "at", "that", "this",
-        "these", "those", "it", "its", "their", "there",
-        "which", "who", "what", "how", "why", "when",
-        "where", "into", "than", "then", "can", "could",
-        "should", "would", "will", "may", "might", "using",
-        "use", "used", "your", "you", "they", "them",
-        "he", "she", "his", "her", "we", "our", "i", "me",
-        "describe", "explain", "discuss", "write", "state",
-        "identify", "give", "list", "answer"
+        "the", "a", "an", "and", "or", "of", "to",
+        "in", "on", "for", "from", "with", "by",
+        "is", "are", "was", "were", "be", "as",
+        "at", "that", "this", "these", "those",
+        "it", "its", "their", "there", "which",
+        "who", "what", "how", "why", "when",
+        "where", "into", "than", "then",
+        "can", "could", "should", "would",
+        "will", "may", "might", "using",
+        "use", "used", "your", "you", "they",
+        "them", "he", "she", "his", "her",
+        "we", "our", "i", "me",
+        "please", "answer", "question"
     }
 
     words = re.findall(
@@ -145,111 +217,51 @@ def content_words(text):
     ]
 
 
-def unique_preserved_terms(text):
-    terms = []
+def stem_like(word):
+    """
+    Small conservative normalization.
+    It is intentionally simple so that the tool
+    does not overclaim semantic understanding.
+    """
 
-    quoted = re.findall(
-        r'"([^"]+)"|\'([^\']+)\'',
-        text
-    )
+    word = word.lower()
 
-    for pair in quoted:
-        for item in pair:
-            if item:
-                terms.append(item.strip())
+    endings = [
+        "ing",
+        "ed",
+        "es",
+        "s"
+    ]
 
-    numbers = re.findall(
-        r"\b\d+(?:\.\d+)?(?:\s*%|\s*(?:kg|g|mg|m|cm|km|s|min|h|Hz|V|A))?\b",
-        text,
-        flags=re.I
-    )
+    for ending in endings:
 
-    terms.extend(numbers)
+        if len(word) > len(ending) + 3:
+            if word.endswith(ending):
+                return word[:-len(ending)]
 
-    return list(dict.fromkeys(terms))
+    return word
+
+
+def normalized_content_words(text):
+    return {
+        stem_like(word)
+        for word in content_words(text)
+    }
 
 
 # ============================================================
-# BLOOM TAXONOMY
+# BLOOM DETECTION
 # ============================================================
-
-BLOOM_VERBS = {
-    "Remember": [
-        "define",
-        "list",
-        "name",
-        "identify",
-        "state",
-        "recall",
-        "recognize",
-        "label",
-        "match",
-    ],
-    "Understand": [
-        "describe",
-        "explain",
-        "summarize",
-        "classify",
-        "interpret",
-        "discuss",
-        "illustrate",
-        "paraphrase",
-    ],
-    "Apply": [
-        "calculate",
-        "solve",
-        "apply",
-        "demonstrate",
-        "use",
-        "implement",
-        "execute",
-        "compute",
-        "perform",
-        "show",
-    ],
-    "Analyze": [
-        "analyze",
-        "analyse",
-        "compare",
-        "contrast",
-        "differentiate",
-        "examine",
-        "investigate",
-        "categorize",
-        "distinguish",
-        "deconstruct",
-    ],
-    "Evaluate": [
-        "evaluate",
-        "assess",
-        "justify",
-        "critique",
-        "judge",
-        "defend",
-        "argue",
-        "recommend",
-        "appraise",
-    ],
-    "Create": [
-        "design",
-        "create",
-        "develop",
-        "construct",
-        "formulate",
-        "produce",
-        "propose",
-        "generate",
-        "plan",
-        "compose",
-    ],
-}
-
 
 def find_bloom_verb(text):
+
     normalized = normalize_text(text)
 
+    # Check longer / more specific verbs first
     for level in BLOOM_LEVELS:
+
         for verb in BLOOM_VERBS[level]:
+
             if re.search(
                 r"\b" + re.escape(verb) + r"\b",
                 normalized
@@ -259,133 +271,160 @@ def find_bloom_verb(text):
     return "", "Unknown"
 
 
-def bloom_score(question, target_level):
+def bloom_score(question, target_bloom):
+
     _, detected = find_bloom_verb(question)
 
-    if not target_level or target_level == "Auto":
+    if target_bloom == "Auto":
+
         if detected == "Unknown":
-            return 72.0
+            return 82
 
-        return 88.0
+        # If the question has a recognizable action verb,
+        # do not punish it simply because no target was selected.
+        return 96
 
-    target = BLOOM_ORDER.get(
-        target_level.lower()
+    target_number = BLOOM_ORDER.get(
+        target_bloom.lower()
     )
 
-    if target is None:
-        return 72.0
-
-    actual = BLOOM_ORDER.get(
+    actual_number = BLOOM_ORDER.get(
         detected.lower()
     )
 
-    if actual is None:
-        return 72.0
+    if actual_number is None:
+        return 78
 
-    distance = abs(target - actual)
+    if target_number == actual_number:
+        return 100
 
-    if distance == 0:
-        return 100.0
+    distance = abs(
+        target_number - actual_number
+    )
 
     if distance == 1:
-        return 88.0
+        return 90
 
     if distance == 2:
-        return 75.0
+        return 82
 
-    return 62.0
+    return 72
 
 
 # ============================================================
-# CLO / PLO PARSING
+# OUTCOME PARSING
 # ============================================================
 
 def parse_outcomes(text):
+
     if not text:
         return []
 
-    lines = text.splitlines()
     outcomes = []
 
-    for line in lines:
+    for line in text.splitlines():
+
         line = line.strip()
 
         if not line:
             continue
 
-        line = re.sub(
+        cleaned = re.sub(
             r"^\s*(?:CLO|PLO)?\s*\d+\s*[\.\):-]?\s*",
             "",
             line,
             flags=re.I
         )
 
-        if len(line) >= 8:
-            outcomes.append(line)
+        if len(cleaned.split()) >= 3:
+            outcomes.append(
+                cleaned.strip()
+            )
 
     return outcomes
 
 
-def meaningful_overlap(question, outcome):
-    q_words = set(content_words(question))
-    o_words = set(content_words(outcome))
+# ============================================================
+# OUTCOME MATCHING
+# ============================================================
 
-    if not q_words or not o_words:
-        return 0.0
+def outcome_similarity(question, outcome):
 
-    overlap = q_words.intersection(o_words)
-
-    q_ratio = len(overlap) / max(len(q_words), 1)
-    o_ratio = len(overlap) / max(len(o_words), 1)
-
-    score = 50 + (q_ratio * 25) + (o_ratio * 25)
-
-    return max(
-        0.0,
-        min(100.0, score)
-    )
-
-
-def outcome_match_score(
-    question,
-    outcome,
-    target_bloom=None
-):
-    if not outcome:
-        return 70.0
-
-    lexical = meaningful_overlap(
-        question,
-        outcome
-    )
-
-    _, question_bloom = find_bloom_verb(
+    q_words = normalized_content_words(
         question
     )
 
-    _, outcome_bloom = find_bloom_verb(
+    o_words = normalized_content_words(
         outcome
     )
 
-    bloom_bonus = 0
+    if not q_words or not o_words:
+        return 0
 
-    if (
-        question_bloom != "Unknown"
-        and outcome_bloom != "Unknown"
+    overlap = q_words.intersection(
+        o_words
+    )
+
+    if not overlap:
+        return 0
+
+    # Favour meaningful overlap without requiring
+    # the question to repeat the entire CLO.
+    q_ratio = len(overlap) / len(q_words)
+    o_ratio = len(overlap) / len(o_words)
+
+    score = (
+        60
+        + (q_ratio * 20)
+        + (o_ratio * 20)
+    )
+
+    return min(100, score)
+
+
+def best_outcome_match(question, outcomes):
+
+    if not outcomes:
+        return "", 70, -1
+
+    scores = []
+
+    for index, outcome in enumerate(
+        outcomes
     ):
-        if question_bloom == outcome_bloom:
-            bloom_bonus = 15
-        elif abs(
-            BLOOM_ORDER.get(question_bloom, 3)
-            - BLOOM_ORDER.get(outcome_bloom, 3)
-        ) == 1:
-            bloom_bonus = 8
 
-    score = lexical + bloom_bonus
+        score = outcome_similarity(
+            question,
+            outcome
+        )
 
-    return max(
-        0.0,
-        min(100.0, score)
+        scores.append(
+            (
+                score,
+                index,
+                outcome
+            )
+        )
+
+    scores.sort(
+        key=lambda item: item[0],
+        reverse=True
+    )
+
+    best_score, best_index, best_text = (
+        scores[0]
+    )
+
+    # A completely different question should
+    # still receive a lower but not disastrous
+    # indicator.
+    if best_score == 0:
+        best_score = 52
+
+    return (
+        best_text,
+        round(best_score, 1),
+        best_index
     )
 
 
@@ -394,6 +433,7 @@ def outcome_match_score(
 # ============================================================
 
 def detect_question_type(question):
+
     q = question.strip()
     lower = q.lower()
 
@@ -403,10 +443,7 @@ def detect_question_type(question):
     ):
         return "True / False"
 
-    if re.search(
-        r"\btrue\s*false\b",
-        lower
-    ):
+    if "true or false" in lower:
         return "True / False"
 
     if re.search(
@@ -422,57 +459,56 @@ def detect_question_type(question):
     if (
         "fill in the blank" in lower
         or "________" in q
-        or "____" in q
+        or "_____" in q
     ):
         return "Fill in the Blank"
 
-    numerical_patterns = [
-        r"\bcalculate\b",
-        r"\bcompute\b",
-        r"\bsolve\b",
-        r"\bfind the value\b",
-        r"\bdetermine the value\b",
-        r"\bwhat is the value\b",
+    numerical_terms = [
+        "calculate",
+        "compute",
+        "solve",
+        "find the value",
+        "determine the value"
     ]
 
     if any(
-        re.search(pattern, lower)
-        for pattern in numerical_patterns
+        term in lower
+        for term in numerical_terms
     ):
         return "Numerical / Problem Solving"
 
     if any(
-        phrase in lower
-        for phrase in [
+        term in lower
+        for term in [
             "case study",
             "scenario",
             "given case",
             "read the case",
-            "situation",
+            "situation"
         ]
     ):
         return "Case Study / Scenario"
 
     if any(
-        word in lower
-        for word in [
+        term in lower
+        for term in [
             "design",
             "develop",
             "construct",
             "implement",
             "perform",
-            "demonstrate",
+            "demonstrate"
         ]
     ):
         return "Practical / Application"
 
     if any(
-        word in lower
-        for word in [
+        term in lower
+        for term in [
             "essay",
             "critically discuss",
             "critically analyze",
-            "critically analyse",
+            "critically analyse"
         ]
     ):
         return "Essay"
@@ -481,8 +517,8 @@ def detect_question_type(question):
         return "Long Answer"
 
     if any(
-        word in lower
-        for word in [
+        term in lower
+        for term in [
             "explain",
             "discuss",
             "analyze",
@@ -490,7 +526,7 @@ def detect_question_type(question):
             "evaluate",
             "compare",
             "justify",
-            "assess",
+            "assess"
         ]
     ):
         return "Short / Long Answer"
@@ -499,120 +535,11 @@ def detect_question_type(question):
 
 
 # ============================================================
-# QUESTION EXTRACTION
-# ============================================================
-
-def clean_question_block(text):
-    text = clean_text(text)
-
-    text = re.sub(
-        r"^\s*(?:Q(?:uestion)?\.?\s*)?\d+\s*[\)\.\-:]\s*",
-        "",
-        text,
-        flags=re.I
-    )
-
-    return text.strip()
-
-
-def extract_questions(text):
-    text = clean_text(text)
-
-    if not text:
-        return []
-
-    lines = text.splitlines()
-    questions = []
-    current = []
-
-    question_start = re.compile(
-        r"^\s*(?:Q(?:uestion)?\.?\s*)?\d+\s*[\)\.\-:]\s+",
-        flags=re.I
-    )
-
-    for line in lines:
-        stripped = line.strip()
-
-        if not stripped:
-            continue
-
-        if question_start.match(stripped):
-
-            if current:
-                block = clean_question_block(
-                    " ".join(current)
-                )
-
-                if len(block.split()) >= 3:
-                    questions.append(block)
-
-            current = [stripped]
-
-        else:
-            if current:
-                current.append(stripped)
-
-    if current:
-        block = clean_question_block(
-            " ".join(current)
-        )
-
-        if len(block.split()) >= 3:
-            questions.append(block)
-
-    # Fallback for assessments without numbering
-    if len(questions) < 2:
-
-        fallback = []
-
-        paragraphs = re.split(
-            r"\n\s*\n",
-            text
-        )
-
-        for paragraph in paragraphs:
-            paragraph = clean_text(
-                paragraph
-            )
-
-            if len(paragraph.split()) >= 5:
-                fallback.append(paragraph)
-
-        if len(fallback) >= 2:
-            questions = fallback
-
-    # Final fallback
-    if not questions:
-
-        pieces = re.split(
-            r"(?<=[\?\:])\s+(?=[A-Z])",
-            text
-        )
-
-        for piece in pieces:
-            piece = clean_text(piece)
-
-            if len(piece.split()) >= 5:
-                questions.append(piece)
-
-    unique = []
-    seen = set()
-
-    for question in questions:
-        key = normalize_text(question)
-
-        if key and key not in seen:
-            unique.append(question)
-            seen.add(key)
-
-    return unique
-
-
-# ============================================================
 # FILE READING
 # ============================================================
 
 def read_pdf(uploaded_file):
+
     if fitz is None:
         raise RuntimeError(
             "PyMuPDF is not installed. "
@@ -629,19 +556,23 @@ def read_pdf(uploaded_file):
     pages = []
 
     for page in document:
+
         text = page.get_text("text")
 
         if text:
             pages.append(text)
 
-    result = "\n\n".join(pages)
+    result = "\n\n".join(
+        pages
+    )
 
-    # OCR fallback
+    # OCR fallback for scanned PDFs
     if (
         len(result.strip()) < 100
         and pytesseract is not None
         and Image is not None
     ):
+
         ocr_pages = []
 
         for page in document:
@@ -657,8 +588,10 @@ def read_pdf(uploaded_file):
             )
 
             try:
-                ocr_text = pytesseract.image_to_string(
-                    image
+                ocr_text = (
+                    pytesseract.image_to_string(
+                        image
+                    )
                 )
 
                 if ocr_text:
@@ -678,6 +611,7 @@ def read_pdf(uploaded_file):
 
 
 def read_docx(uploaded_file):
+
     if Document is None:
         raise RuntimeError(
             "python-docx is not installed."
@@ -690,36 +624,35 @@ def read_docx(uploaded_file):
     )
 
     paragraphs = [
-        paragraph.text
-        for paragraph in document.paragraphs
-        if paragraph.text.strip()
+        p.text
+        for p in document.paragraphs
+        if p.text.strip()
     ]
 
-    table_text = []
+    tables = []
 
     for table in document.tables:
 
         for row in table.rows:
 
-            cells = []
+            cells = [
+                cell.text
+                for cell in row.cells
+            ]
 
-            for cell in row.cells:
-                cells.append(
-                    cell.text
-                )
-
-            table_text.append(
+            tables.append(
                 " | ".join(cells)
             )
 
     return clean_text(
         "\n".join(
-            paragraphs + table_text
+            paragraphs + tables
         )
     )
 
 
 def read_pptx(uploaded_file):
+
     if Presentation is None:
         raise RuntimeError(
             "python-pptx is not installed."
@@ -757,13 +690,14 @@ def read_pptx(uploaded_file):
 
 
 def read_excel(uploaded_file):
+
     data = uploaded_file.read()
 
     workbook = pd.ExcelFile(
         io.BytesIO(data)
     )
 
-    sheets = []
+    all_text = []
 
     for sheet in workbook.sheet_names:
 
@@ -773,9 +707,12 @@ def read_excel(uploaded_file):
             header=None
         )
 
-        sheet_text = (
-            f"Sheet: {sheet}\n"
-            + frame.fillna("")
+        all_text.append(
+            f"Sheet: {sheet}"
+        )
+
+        all_text.append(
+            frame.fillna("")
             .astype(str)
             .to_csv(
                 index=False,
@@ -783,48 +720,40 @@ def read_excel(uploaded_file):
             )
         )
 
-        sheets.append(
-            sheet_text
-        )
-
     return clean_text(
-        "\n".join(sheets)
+        "\n".join(all_text)
     )
 
 
 def read_csv(uploaded_file):
+
     data = uploaded_file.read()
 
-    try:
-        frame = pd.read_csv(
-            io.BytesIO(data)
-        )
-
-    except Exception:
-        frame = pd.read_csv(
-            io.BytesIO(data),
-            header=None
-        )
+    frame = pd.read_csv(
+        io.BytesIO(data),
+        header=None
+    )
 
     return clean_text(
         frame.fillna("")
         .astype(str)
         .to_csv(
-            index=False
+            index=False,
+            header=False
         )
     )
 
 
 def read_text(uploaded_file):
-    data = uploaded_file.read()
 
-    return data.decode(
+    return uploaded_file.read().decode(
         "utf-8",
         errors="ignore"
     )
 
 
 def read_image(uploaded_file):
+
     if Image is None:
         raise RuntimeError(
             "Pillow is not installed."
@@ -847,41 +776,42 @@ def read_image(uploaded_file):
 
 
 def read_uploaded_file(uploaded_file):
-    suffix = Path(
+
+    extension = Path(
         uploaded_file.name
     ).suffix.lower()
 
-    if suffix == ".pdf":
+    if extension == ".pdf":
         return read_pdf(uploaded_file)
 
-    if suffix == ".docx":
+    if extension == ".docx":
         return read_docx(uploaded_file)
 
-    if suffix == ".pptx":
+    if extension == ".pptx":
         return read_pptx(uploaded_file)
 
-    if suffix in [".xlsx", ".xls"]:
+    if extension in [".xlsx", ".xls"]:
         return read_excel(uploaded_file)
 
-    if suffix == ".csv":
+    if extension == ".csv":
         return read_csv(uploaded_file)
 
-    if suffix in [".txt", ".md"]:
+    if extension in [".txt", ".md"]:
         return read_text(uploaded_file)
 
-    if suffix in [
+    if extension in [
         ".png",
         ".jpg",
         ".jpeg",
         ".webp",
         ".bmp",
-        ".tiff",
+        ".tiff"
     ]:
         return read_image(uploaded_file)
 
-    if suffix == ".svg":
+    if extension == ".svg":
 
-        data = uploaded_file.read().decode(
+        raw = uploaded_file.read().decode(
             "utf-8",
             errors="ignore"
         )
@@ -890,39 +820,39 @@ def read_uploaded_file(uploaded_file):
             re.sub(
                 r"<[^>]+>",
                 " ",
-                data
+                raw
             )
         )
 
     raise RuntimeError(
-        f"Unsupported file type: {suffix}"
+        f"Unsupported file type: {extension}"
     )
 
 
 # ============================================================
-# SCORING
+# QUALITY INDICATORS
 # ============================================================
 
 def clarity_score(question):
+
     words = question.split()
 
-    score = 94.0
+    score = 100
 
     if len(words) < 4:
-        score -= 18
+        score -= 12
 
-    if len(words) > 80:
-        score -= 8
+    if len(words) > 100:
+        score -= 5
 
     vague_phrases = [
-        "discuss everything",
         "write something",
         "say something",
         "what do you know",
-        "write about",
+        "discuss everything",
+        "write about this",
         "comment on this",
-        "discuss the topic",
-        "explain in detail",
+        "discuss the topic"
     ]
 
     lower = question.lower()
@@ -930,79 +860,227 @@ def clarity_score(question):
     for phrase in vague_phrases:
 
         if phrase in lower:
-            score -= 12
+            score -= 15
+
+    # Very long sentences can still be valid,
+    # so use only a small penalty.
+    if len(words) > 65:
+        score -= 3
 
     return max(
-        0.0,
-        min(100.0, score)
+        55,
+        min(100, score)
     )
 
 
-def measurability_score(question):
-    _, level = find_bloom_verb(
+def measurability_score(
+    question,
+    question_type
+):
+
+    _, bloom = find_bloom_verb(
         question
     )
 
-    if level != "Unknown":
-        return 96.0
+    score = 94
 
-    if "?" in question:
-        return 85.0
+    if bloom != "Unknown":
+        score = 98
 
-    return 76.0
+    if question_type == "Multiple Choice":
+        score = max(
+            score,
+            95
+        )
+
+    if question_type == "True / False":
+        score = max(
+            score,
+            96
+        )
+
+    if question_type == "Numerical / Problem Solving":
+        score = max(
+            score,
+            96
+        )
+
+    return score
 
 
 def relevance_score(
     question,
+    clo_score,
+    plo_score
+):
+
+    available = []
+
+    if clo_score is not None:
+        available.append(
+            clo_score
+        )
+
+    if plo_score is not None:
+        available.append(
+            plo_score
+        )
+
+    if not available:
+        return 80
+
+    # Relevance should be influenced by outcomes
+    # but should not duplicate them exactly.
+    average = sum(
+        available
+    ) / len(available)
+
+    return round(
+        min(
+            100,
+            average + 5
+        ),
+        1
+    )
+
+
+# ============================================================
+# QUESTION DIAGNOSIS
+# ============================================================
+
+def identify_problem(
+    question,
+    clo_score,
+    plo_score,
+    bloom_score_value,
+    clarity,
+    measurability,
+    target_bloom,
     clo,
     plo
 ):
-    scores = []
 
-    if clo:
-        scores.append(
-            meaningful_overlap(
-                question,
-                clo
-            )
+    problems = []
+
+    if clo and clo_score < 70:
+        problems.append(
+            {
+                "area": "CLO Alignment",
+                "problem": (
+                    "The question does not clearly connect "
+                    "with the selected CLO."
+                ),
+                "priority": 1
+            }
         )
 
-    if plo:
-        scores.append(
-            meaningful_overlap(
-                question,
-                plo
-            )
+    if plo and plo_score < 70:
+        problems.append(
+            {
+                "area": "PLO Alignment",
+                "problem": (
+                    "The question has only a limited "
+                    "connection with the selected PLO."
+                ),
+                "priority": 2
+            }
         )
 
-    if not scores:
-        return 75.0
+    if (
+        target_bloom != "Auto"
+        and bloom_score_value < 90
+    ):
+        problems.append(
+            {
+                "area": "Bloom Level",
+                "problem": (
+                    f"The action required by the question "
+                    f"does not closely match the selected "
+                    f"Bloom level: {target_bloom}."
+                ),
+                "priority": 1
+            }
+        )
 
-    return sum(scores) / len(scores)
+    if clarity < 85:
+        problems.append(
+            {
+                "area": "Clarity",
+                "problem": (
+                    "The question leaves some uncertainty "
+                    "about what the student should provide "
+                    "in the answer."
+                ),
+                "priority": 1
+            }
+        )
 
+    if measurability < 85:
+        problems.append(
+            {
+                "area": "Measurability",
+                "problem": (
+                    "The expected student response is not "
+                    "defined clearly enough for consistent "
+                    "assessment."
+                ),
+                "priority": 2
+            }
+        )
+
+    if not problems:
+
+        problems.append(
+            {
+                "area": "Minor Refinement",
+                "problem": (
+                    "The question is already reasonably "
+                    "aligned. A small refinement may make "
+                    "the expected response even clearer."
+                ),
+                "priority": 3
+            }
+        )
+
+    problems.sort(
+        key=lambda item: item["priority"]
+    )
+
+    return problems[0]
+
+
+# ============================================================
+# OVERALL QUESTION SCORING
+# ============================================================
 
 def evaluate_question(
     question,
-    clo="",
-    plo="",
-    target_bloom="Auto",
-    question_type=None,
+    clos,
+    plos,
+    target_bloom
 ):
-    if question_type is None:
-        question_type = detect_question_type(
-            question
-        )
 
-    clo_score = outcome_match_score(
-        question,
-        clo,
-        target_bloom
+    question_type = detect_question_type(
+        question
     )
 
-    plo_score = outcome_match_score(
-        question,
-        plo,
-        target_bloom
+    # --------------------------------------------------------
+    # Automatically find the strongest CLO and PLO.
+    # Do NOT assign them cyclically.
+    # --------------------------------------------------------
+
+    clo, clo_score, clo_index = (
+        best_outcome_match(
+            question,
+            clos
+        )
+    )
+
+    plo, plo_score, plo_index = (
+        best_outcome_match(
+            question,
+            plos
+        )
     )
 
     bloom = bloom_score(
@@ -1010,19 +1088,35 @@ def evaluate_question(
         target_bloom
     )
 
-    relevance = relevance_score(
-        question,
-        clo,
-        plo
-    )
-
     clarity = clarity_score(
         question
     )
 
-    measurable = measurability_score(
-        question
+    measurability = measurability_score(
+        question,
+        question_type
     )
+
+    relevance = relevance_score(
+        question,
+        clo_score,
+        plo_score
+    )
+
+    # --------------------------------------------------------
+    # LENIENT WEIGHTING
+    # --------------------------------------------------------
+    #
+    # CLO       20%
+    # PLO       15%
+    # Bloom     20%
+    # Relevance 15%
+    # Clarity   15%
+    # Meas.     15%
+    #
+    # But weak CLO/PLO evidence does not automatically
+    # destroy the score.
+    # --------------------------------------------------------
 
     overall = (
         clo_score * 0.20
@@ -1030,14 +1124,46 @@ def evaluate_question(
         + bloom * 0.20
         + relevance * 0.15
         + clarity * 0.15
-        + measurable * 0.15
+        + measurability * 0.15
+    )
+
+    # Small leniency adjustment.
+    # This prevents a reasonable question from being
+    # classified too harshly simply because wording differs.
+    if overall < 75:
+        overall += 4
+
+    if overall < 60:
+        overall += 3
+
+    overall = min(
+        100,
+        round(overall, 1)
+    )
+
+    problem = identify_problem(
+        question,
+        clo_score,
+        plo_score,
+        bloom,
+        clarity,
+        measurability,
+        target_bloom,
+        clo,
+        plo
     )
 
     return {
+        "question": question,
+        "Question Type": question_type,
+        "CLO": clo,
+        "CLO Index": clo_index,
         "CLO Match": round(
             clo_score,
             1
         ),
+        "PLO": plo,
+        "PLO Index": plo_index,
         "PLO Match": round(
             plo_score,
             1
@@ -1055,209 +1181,270 @@ def evaluate_question(
             1
         ),
         "Measurability": round(
-            measurable,
+            measurability,
             1
         ),
-        "Overall": round(
-            overall,
-            1
-        ),
-        "Question Type": question_type,
+        "Overall": overall,
+        "Problem Area": problem["area"],
+        "Problem": problem["problem"]
     }
 
 
+def analyze_questions(
+    questions,
+    clos,
+    plos,
+    target_bloom
+):
+
+    results = []
+
+    for index, question in enumerate(
+        questions
+    ):
+
+        result = evaluate_question(
+            question,
+            clos,
+            plos,
+            target_bloom
+        )
+
+        result["index"] = index
+
+        results.append(
+            result
+        )
+
+    return results
+
+
+def overall_score(analysis):
+
+    if not analysis:
+        return 0
+
+    return round(
+        sum(
+            item["Overall"]
+            for item in analysis
+        ) / len(analysis),
+        1
+    )
+
+
 # ============================================================
-# PRACTICAL REVISION ENGINE
+# REVISION ENGINE
 # ============================================================
 
-def preservation_score(
+def preserve_special_terms(
     original,
     revised
 ):
-    original_words = set(
-        content_words(original)
-    )
 
-    revised_words = set(
-        content_words(revised)
-    )
-
-    if not original_words:
-        return 0.0
-
-    retained = (
-        original_words.intersection(
-            revised_words
-        )
-    )
-
-    word_retention = (
-        len(retained)
-        / len(original_words)
-    )
-
-    original_special = unique_preserved_terms(
+    original_numbers = re.findall(
+        r"\b\d+(?:\.\d+)?\b",
         original
     )
 
-    revised_special = unique_preserved_terms(
+    for number in original_numbers:
+
+        if number not in revised:
+            return False
+
+    return True
+
+
+def preserve_core_topic(
+    original,
+    revised
+):
+
+    original_words = normalized_content_words(
+        original
+    )
+
+    revised_words = normalized_content_words(
         revised
     )
 
-    special_score = 0.0
-
-    if original_special:
-
-        retained_special = [
-            term
-            for term in original_special
-            if term in revised_special
-        ]
-
-        special_score = (
-            len(retained_special)
-            / len(original_special)
-        )
-
-    score = (
-        word_retention * 75
-        + special_score * 25
-    )
-
-    return max(
-        0.0,
-        min(100.0, score)
-    )
-
-
-def topic_preserved(
-    original,
-    revised
-):
-    original_words = set(
-        content_words(original)
-    )
-
-    revised_words = set(
-        content_words(revised)
-    )
-
     if not original_words:
         return False
 
-    overlap = len(
-        original_words.intersection(
-            revised_words
-        )
+    overlap = original_words.intersection(
+        revised_words
     )
 
-    retention = (
-        overlap
+    ratio = (
+        len(overlap)
         / len(original_words)
     )
 
-    if retention >= 0.55:
-        return True
-
-    original_special = unique_preserved_terms(
-        original
-    )
-
-    if original_special:
-
-        return all(
-            term in revised
-            for term in original_special
-        )
-
-    return False
+    return ratio >= 0.60
 
 
-def candidate_is_safe(
+def safe_candidate(
     original,
     candidate,
-    clo,
-    plo,
-    target_bloom,
-    question_type,
+    clos,
+    plos,
+    target_bloom
 ):
+
     if not candidate:
         return False
 
-    if normalize_text(candidate) == normalize_text(
+    if normalize_text(
         original
+    ) == normalize_text(
+        candidate
     ):
         return False
 
-    if not topic_preserved(
+    if not preserve_core_topic(
         original,
         candidate
     ):
         return False
 
-    preservation = preservation_score(
+    if not preserve_special_terms(
         original,
         candidate
-    )
-
-    if preservation < 60:
+    ):
         return False
-
-    original_special = unique_preserved_terms(
-        original
-    )
-
-    candidate_special = unique_preserved_terms(
-        candidate
-    )
-
-    for term in original_special:
-
-        if term not in candidate_special:
-            return False
-
-    candidate_type = detect_question_type(
-        candidate
-    )
-
-    if candidate_type != question_type:
-
-        compatible = {
-            "Short Answer",
-            "Long Answer",
-            "Short / Long Answer",
-            "Essay",
-        }
-
-        if not (
-            question_type in compatible
-            and candidate_type in compatible
-        ):
-            return False
 
     old_score = evaluate_question(
         original,
-        clo,
-        plo,
-        target_bloom,
-        question_type
+        clos,
+        plos,
+        target_bloom
     )["Overall"]
 
     new_score = evaluate_question(
         candidate,
-        clo,
-        plo,
-        target_bloom,
-        question_type
+        clos,
+        plos,
+        target_bloom
     )["Overall"]
 
-    return new_score >= old_score + 1.0
+    return new_score >= old_score + 1
 
 
-def replace_leading_verb(
+def revise_clarity(question):
+
+    replacements = [
+        (
+            r"\bwhat do you know about\b",
+            "Explain"
+        ),
+        (
+            r"\bwrite something about\b",
+            "Explain the main features of"
+        ),
+        (
+            r"\bwrite about\b",
+            "Explain the main features of"
+        ),
+        (
+            r"\bdiscuss everything about\b",
+            "Discuss the key aspects of"
+        ),
+        (
+            r"\bcomment on\b",
+            "Explain"
+        )
+    ]
+
+    for pattern, replacement in replacements:
+
+        if re.search(
+            pattern,
+            question,
+            flags=re.I
+        ):
+
+            return re.sub(
+                pattern,
+                replacement,
+                question,
+                count=1,
+                flags=re.I
+            )
+
+    return ""
+
+
+def revise_measurability(
     question,
-    new_verb
+    question_type
 ):
+
+    lower = question.lower()
+
+    if question_type == "Numerical / Problem Solving":
+
+        if (
+            "show" not in lower
+            and "steps" not in lower
+        ):
+
+            return (
+                question.rstrip(" .?")
+                + " Show the steps used in your calculation."
+            )
+
+    if question_type == "Case Study / Scenario":
+
+        if (
+            "evidence" not in lower
+            and "support" not in lower
+        ):
+
+            return (
+                question.rstrip(" .?")
+                + " Support your answer with evidence "
+                "from the case."
+            )
+
+    if question_type in [
+        "Multiple Choice",
+        "True / False",
+        "Matching",
+        "Fill in the Blank"
+    ]:
+        return ""
+
+    return (
+        question.rstrip(" .?")
+        + " Support your answer with relevant points "
+        "from the topic."
+    )
+
+
+def revise_bloom(
+    question,
+    target_bloom
+):
+
+    if target_bloom == "Auto":
+        return ""
+
+    replacement_verbs = {
+        "Remember": "identify",
+        "Understand": "explain",
+        "Apply": "apply",
+        "Analyze": "analyze",
+        "Evaluate": "evaluate",
+        "Create": "design"
+    }
+
+    new_verb = replacement_verbs.get(
+        target_bloom
+    )
+
+    if not new_verb:
+        return ""
+
     verbs = []
 
     for level in BLOOM_LEVELS:
@@ -1268,8 +1455,8 @@ def replace_leading_verb(
     pattern = (
         r"^\s*(?:please\s+)?(?:"
         + "|".join(
-            re.escape(verb)
-            for verb in verbs
+            re.escape(v)
+            for v in verbs
         )
         + r")\b"
     )
@@ -1280,282 +1467,122 @@ def replace_leading_verb(
         flags=re.I
     )
 
-    if match:
+    if not match:
+        return ""
 
-        remainder = question[
-            match.end():
-        ].lstrip()
-
-        return (
-            new_verb.capitalize()
-            + " "
-            + remainder
-        )
+    remainder = question[
+        match.end():
+    ].lstrip()
 
     return (
         new_verb.capitalize()
         + " "
-        + question
+        + remainder
     )
 
 
-def make_clarity_revision(
+def revise_outcome(
     question,
+    outcome,
     question_type
 ):
-    replacements = [
-        (
-            "discuss everything about",
-            "Explain the key aspects of"
-        ),
-        (
-            "write something about",
-            "Explain the main features of"
-        ),
-        (
-            "write about",
-            "Explain the main features of"
-        ),
-        (
-            "comment on",
-            "Explain"
-        ),
-        (
-            "what do you know about",
-            "Explain"
-        ),
-    ]
-
-    lower = question.lower()
-
-    for old, new in replacements:
-
-        if old in lower:
-
-            return re.sub(
-                re.escape(old),
-                new,
-                question,
-                count=1,
-                flags=re.I
-            )
-
-    verb, level = find_bloom_verb(
-        question
-    )
-
-    if level != "Unknown":
-
-        return (
-            question.rstrip(" .?")
-            + " Clearly address the specific "
-            "requirement stated in the question."
-        )
-
-    return (
-        question.rstrip(" .?")
-        + " Clearly state the specific points "
-        "required in your answer."
-    )
-
-
-def make_measurable_revision(
-    question,
-    question_type
-):
-    q = question.rstrip()
-
-    lower = q.lower()
-
-    if question_type == "Numerical / Problem Solving":
-
-        if (
-            "show" not in lower
-            and "steps" not in lower
-        ):
-
-            return (
-                q.rstrip(" .?")
-                + " Show the steps used in your calculation."
-            )
-
-    if question_type == "Case Study / Scenario":
-
-        if (
-            "evidence" not in lower
-            and "factors" not in lower
-        ):
-
-            return (
-                q.rstrip(" .?")
-                + " Identify two relevant factors "
-                "and support your answer with evidence "
-                "from the case."
-            )
-
-    if question_type in [
-        "Multiple Choice",
-        "True / False",
-        "Matching",
-    ]:
-        return ""
-
-    return (
-        q.rstrip(" .?")
-        + " Include at least two relevant points "
-        "in your response."
-    )
-
-
-def make_bloom_revision(
-    question,
-    target_bloom
-):
-    if target_bloom == "Auto":
-        return ""
-
-    verb_map = {
-        "remember": "identify",
-        "understand": "explain",
-        "apply": "apply",
-        "analyze": "analyze",
-        "evaluate": "evaluate",
-        "create": "design",
-    }
-
-    new_verb = verb_map.get(
-        target_bloom.lower()
-    )
-
-    if not new_verb:
-        return ""
-
-    return replace_leading_verb(
-        question,
-        new_verb
-    )
-
-
-def make_outcome_revision(
-    question,
-    clo,
-    plo,
-    question_type
-):
-    outcome = clo if clo else plo
 
     if not outcome:
         return ""
 
-    outcome_words = content_words(
-        outcome
-    )
+    outcome_words = [
+        word
+        for word in content_words(
+            outcome
+        )
+        if len(word) >= 5
+    ]
 
     question_words = set(
         content_words(question)
     )
 
-    missing = [
-        word
-        for word in outcome_words
-        if word not in question_words
-    ]
+    missing = []
 
-    useful = [
-        word
-        for word in missing
-        if len(word) >= 5
-    ][:3]
+    for word in outcome_words:
 
-    if not useful:
+        if word not in question_words:
+            missing.append(
+                word
+            )
+
+    if not missing:
         return ""
 
-    if question_type == "Case Study / Scenario":
-
-        return (
-            question.rstrip(" .?")
-            + " Address the relevant "
-            + ", ".join(useful)
-            + " in your response."
-        )
+    # Only use one or two meaningful outcome terms.
+    useful = missing[:2]
 
     if question_type == "Numerical / Problem Solving":
 
         return (
             question.rstrip(" .?")
             + " Apply the relevant "
-            + ", ".join(useful)
+            + " and ".join(useful)
             + " when solving the problem."
+        )
+
+    if question_type == "Case Study / Scenario":
+
+        return (
+            question.rstrip(" .?")
+            + " Address the relevant "
+            + " and ".join(useful)
+            + " in your response."
         )
 
     return (
         question.rstrip(" .?")
-        + " In your answer, relate your response to "
-        + ", ".join(useful)
+        + " Relate your answer to "
+        + " and ".join(useful)
         + "."
     )
 
 
-def generate_practical_revisions(
+def generate_revision_options(
     question,
     clo,
     plo,
-    target_bloom,
-    question_type
+    target_bloom
 ):
+
+    question_type = detect_question_type(
+        question
+    )
+
     candidates = []
 
     # --------------------------------------------------------
-    # CLARITY
+    # OPTION 1: CLARITY
     # --------------------------------------------------------
 
-    clarity = make_clarity_revision(
-        question,
-        question_type
+    clarity = revise_clarity(
+        question
     )
 
     if clarity:
 
         candidates.append(
             {
-                "text": clarity,
-                "reason": (
-                    "Clarifies what the student is expected "
-                    "to do while preserving the original "
-                    "topic and task."
-                ),
+                "revision": clarity,
                 "focus": "Clarity",
-            }
-        )
-
-    # --------------------------------------------------------
-    # MEASURABILITY
-    # --------------------------------------------------------
-
-    measurable = make_measurable_revision(
-        question,
-        question_type
-    )
-
-    if measurable:
-
-        candidates.append(
-            {
-                "text": measurable,
                 "reason": (
-                    "Makes the expected student response "
-                    "observable and easier to assess "
-                    "consistently."
-                ),
-                "focus": "Measurability",
+                    "The original wording is broad or vague. "
+                    "The revision makes the expected task "
+                    "clearer without changing the topic."
+                )
             }
         )
 
     # --------------------------------------------------------
-    # BLOOM
+    # OPTION 2: BLOOM
     # --------------------------------------------------------
 
-    bloom_revision = make_bloom_revision(
+    bloom_revision = revise_bloom(
         question,
         target_bloom
     )
@@ -1564,24 +1591,47 @@ def generate_practical_revisions(
 
         candidates.append(
             {
-                "text": bloom_revision,
+                "revision": bloom_revision,
+                "focus": "Bloom Level",
                 "reason": (
-                    "Adjusts the action required from the "
-                    "student to better match the selected "
-                    "Bloom level."
-                ),
-                "focus": "Bloom",
+                    "The action verb is adjusted so the "
+                    "student performs the selected cognitive "
+                    "level more directly."
+                )
             }
         )
 
     # --------------------------------------------------------
-    # OUTCOME ALIGNMENT
+    # OPTION 3: MEASURABILITY
     # --------------------------------------------------------
 
-    outcome_revision = make_outcome_revision(
+    measurable = revise_measurability(
         question,
-        clo,
-        plo,
+        question_type
+    )
+
+    if measurable:
+
+        candidates.append(
+            {
+                "revision": measurable,
+                "focus": "Measurability",
+                "reason": (
+                    "The revision makes the expected response "
+                    "more observable and easier to assess."
+                )
+            }
+        )
+
+    # --------------------------------------------------------
+    # OPTION 4: CLO / PLO
+    # --------------------------------------------------------
+
+    outcome = clo if clo else plo
+
+    outcome_revision = revise_outcome(
+        question,
+        outcome,
         question_type
     )
 
@@ -1589,13 +1639,13 @@ def generate_practical_revisions(
 
         candidates.append(
             {
-                "text": outcome_revision,
+                "revision": outcome_revision,
+                "focus": "Outcome Alignment",
                 "reason": (
-                    "Strengthens the connection with the "
-                    "stated learning outcome without "
-                    "changing the subject or core question."
-                ),
-                "focus": "CLO/PLO Alignment",
+                    "The revision makes the relationship "
+                    "between the question and the learning "
+                    "outcome more explicit."
+                )
             }
         )
 
@@ -1603,55 +1653,49 @@ def generate_practical_revisions(
     # VALIDATE
     # --------------------------------------------------------
 
+    validated = []
+    seen = set()
+
     original_score = evaluate_question(
         question,
-        clo,
-        plo,
-        target_bloom,
-        question_type
+        [clo] if clo else [],
+        [plo] if plo else [],
+        target_bloom
     )["Overall"]
-
-    valid = []
-    seen = set()
 
     for candidate in candidates:
 
-        text = clean_text(
-            candidate["text"]
+        revision = clean_text(
+            candidate["revision"]
         )
 
         key = normalize_text(
-            text
+            revision
         )
 
-        if not key or key in seen:
+        if not revision or key in seen:
             continue
 
         seen.add(key)
 
-        safe = candidate_is_safe(
-            question,
-            text,
-            clo,
-            plo,
-            target_bloom,
-            question_type
-        )
+        # Use actual selected outcomes for rescoring
+        clos = [clo] if clo else []
+        plos = [plo] if plo else []
 
-        if not safe:
+        if not safe_candidate(
+            question,
+            revision,
+            clos,
+            plos,
+            target_bloom
+        ):
             continue
 
         new_metrics = evaluate_question(
-            text,
-            clo,
-            plo,
-            target_bloom,
-            question_type
-        )
-
-        preservation = preservation_score(
-            question,
-            text
+            revision,
+            clos,
+            plos,
+            target_bloom
         )
 
         gain = (
@@ -1659,119 +1703,68 @@ def generate_practical_revisions(
             - original_score
         )
 
-        candidate["text"] = text
-        candidate["score"] = new_metrics
+        if gain < 1:
+            continue
+
+        candidate["revision"] = revision
+        candidate["new_metrics"] = new_metrics
+        candidate["old_score"] = original_score
+        candidate["new_score"] = (
+            new_metrics["Overall"]
+        )
         candidate["gain"] = round(
             gain,
             1
         )
-        candidate["preservation"] = round(
-            preservation,
-            1
-        )
 
-        valid.append(
+        validated.append(
             candidate
         )
 
-    valid.sort(
-        key=lambda item: (
-            item["score"]["Overall"],
-            item["preservation"]
-        ),
+    validated.sort(
+        key=lambda item: item["new_score"],
         reverse=True
     )
 
-    return valid[:3]
+    return validated[:3]
 
 
 # ============================================================
-# ANALYSIS
+# STATUS HELPERS
 # ============================================================
 
-def analyze_questions(
-    questions,
-    clos,
-    plos,
-    target_bloom
-):
-    results = []
+def status_for_score(score):
 
-    for index, question in enumerate(
-        questions
-    ):
+    if score >= 85:
+        return "🟢 Strong"
 
-        clo = ""
+    if score >= 75:
+        return "🟢 Attained"
 
-        if clos:
-            clo = clos[
-                index % len(clos)
-            ]
-
-        plo = ""
-
-        if plos:
-            plo = plos[
-                index % len(plos)
-            ]
-
-        question_type = detect_question_type(
-            question
-        )
-
-        metrics = evaluate_question(
-            question,
-            clo,
-            plo,
-            target_bloom,
-            question_type
-        )
-
-        results.append(
-            {
-                "index": index,
-                "question": question,
-                "clo": clo,
-                "plo": plo,
-                **metrics,
-            }
-        )
-
-    return results
-
-
-def overall_score(analysis):
-    if not analysis:
-        return 0.0
-
-    return round(
-        sum(
-            item["Overall"]
-            for item in analysis
-        )
-        / len(analysis),
-        1
-    )
-
-
-def score_status(score):
-    if score >= ATTAINED_THRESHOLD:
-        return "Attained"
+    if score >= 65:
+        return "🟡 Minor Revision"
 
     if score >= 50:
-        return "Review"
+        return "🟠 Review"
 
-    return "Needs Revision"
+    return "🔴 Needs Revision"
 
 
-def score_icon(score):
-    if score >= ATTAINED_THRESHOLD:
-        return "🟢"
+def score_message(score):
+
+    if score >= 85:
+        return "Strong alignment"
+
+    if score >= 75:
+        return "Attained — minor refinement may still help"
+
+    if score >= 65:
+        return "Reasonable alignment — one or two improvements may help"
 
     if score >= 50:
-        return "🟡"
+        return "Needs review"
 
-    return "🔴"
+    return "Needs revision"
 
 
 # ============================================================
@@ -1783,9 +1776,8 @@ with st.sidebar:
     st.title("🎓 OBE Quiz Checker")
 
     st.write(
-        "Check quiz and assessment questions for "
-        "CLO, PLO, Bloom's Taxonomy, relevance, "
-        "clarity and measurability."
+        "A practical workshop tool for checking "
+        "assessment alignment and revising questions."
     )
 
     st.divider()
@@ -1798,28 +1790,35 @@ with st.sidebar:
     st.divider()
 
     st.caption(
-        "Attainment Threshold"
+        "Score interpretation"
     )
 
     st.success(
-        "75% or above = Attained"
+        "75%+ = Attained"
+    )
+
+    st.info(
+        "The percentage is an alignment indicator, "
+        "not a final judgment of teaching quality."
     )
 
 
 # ============================================================
-# HEADER
+# TITLE
 # ============================================================
 
 st.title("🎓 OBE Quiz Checker")
 
 st.write(
-    "Check your assessment questions and improve weak "
-    "questions with practical, context-preserving revisions."
+    "Upload an assessment, provide CLOs/PLOs, and let "
+    "the tool identify which questions are aligned, "
+    "which need attention, and how a weak question can "
+    "be revised without changing its original topic."
 )
 
 
 # ============================================================
-# ASSESSMENT INFORMATION
+# STEP 1
 # ============================================================
 
 st.header("1️⃣ Assessment Information")
@@ -1831,23 +1830,23 @@ with col1:
     course_name = st.text_input(
         "Course / Subject",
         placeholder=(
-            "e.g., Chemistry, English I, "
-            "Programming, Mathematics"
+            "e.g., English I, Chemistry, "
+            "Computer Science, Mathematics"
         )
     )
 
 with col2:
 
     assessment_name = st.text_input(
-        "Assessment Name",
+        "Assessment",
         placeholder=(
-            "e.g., Quiz 1, Midterm, Final Exam"
+            "e.g., Quiz 1, Assignment, Midterm"
         )
     )
 
 
 # ============================================================
-# LEARNING OUTCOMES
+# STEP 2
 # ============================================================
 
 st.header("2️⃣ Learning Outcomes")
@@ -1857,7 +1856,7 @@ col1, col2 = st.columns(2)
 with col1:
 
     clo_text = st.text_area(
-        "CLOs",
+        "Course Learning Outcomes (CLOs)",
         height=180,
         placeholder=(
             "CLO 1: Explain fundamental concepts...\n"
@@ -1869,7 +1868,7 @@ with col1:
 with col2:
 
     plo_text = st.text_area(
-        "PLOs",
+        "Program Learning Outcomes (PLOs)",
         height=180,
         placeholder=(
             "PLO 1: Knowledge...\n"
@@ -1877,7 +1876,6 @@ with col2:
             "PLO 3: Design..."
         )
     )
-
 
 clos = parse_outcomes(
     clo_text
@@ -1889,13 +1887,13 @@ plos = parse_outcomes(
 
 
 # ============================================================
-# FILE UPLOAD
+# STEP 3
 # ============================================================
 
-st.header("3️⃣ Upload Complete Quiz / Assessment")
+st.header("3️⃣ Upload Complete Assessment")
 
 uploaded_file = st.file_uploader(
-    "Upload your complete assessment",
+    "Upload PDF, Word, PowerPoint, Excel, CSV, TXT or image",
     type=[
         "pdf",
         "docx",
@@ -1905,22 +1903,18 @@ uploaded_file = st.file_uploader(
         "csv",
         "txt",
         "md",
-        "svg",
         "png",
         "jpg",
         "jpeg",
         "webp",
         "bmp",
         "tiff",
+        "svg"
     ]
 )
 
 
-# ============================================================
-# READ ASSESSMENT
-# ============================================================
-
-if uploaded_file is not None:
+if uploaded_file:
 
     if st.button(
         "📖 Read Assessment",
@@ -1930,19 +1924,19 @@ if uploaded_file is not None:
         try:
 
             with st.spinner(
-                "Reading your assessment..."
+                "Reading the complete assessment..."
             ):
 
-                extracted_text = read_uploaded_file(
+                text = read_uploaded_file(
                     uploaded_file
                 )
 
             questions = extract_questions(
-                extracted_text
+                text
             )
 
             st.session_state.assessment_text = (
-                extracted_text
+                text
             )
 
             st.session_state.questions = (
@@ -1953,10 +1947,8 @@ if uploaded_file is not None:
 
             st.session_state.analysis_complete = False
 
-            st.session_state.revision_options = []
-
             st.success(
-                "Assessment successfully read. "
+                f"Assessment read successfully. "
                 f"{len(questions)} question(s) detected."
             )
 
@@ -1968,7 +1960,124 @@ if uploaded_file is not None:
 
 
 # ============================================================
-# EXTRACTED TEXT
+# QUESTION EXTRACTION
+# ============================================================
+
+def extract_questions(text):
+
+    text = clean_text(text)
+
+    if not text:
+        return []
+
+    lines = text.splitlines()
+
+    questions = []
+    current = []
+
+    numbered = re.compile(
+        r"^\s*(?:Q(?:uestion)?\.?\s*)?\d+\s*[\)\.\-:]\s+",
+        flags=re.I
+    )
+
+    for line in lines:
+
+        line = line.strip()
+
+        if not line:
+            continue
+
+        if numbered.match(line):
+
+            if current:
+
+                block = clean_text(
+                    " ".join(current)
+                )
+
+                block = re.sub(
+                    r"^\s*(?:Q(?:uestion)?\.?\s*)?\d+\s*[\)\.\-:]\s*",
+                    "",
+                    block,
+                    flags=re.I
+                )
+
+                if len(block.split()) >= 3:
+                    questions.append(
+                        block
+                    )
+
+            current = [line]
+
+        else:
+
+            if current:
+                current.append(line)
+
+    if current:
+
+        block = clean_text(
+            " ".join(current)
+        )
+
+        block = re.sub(
+            r"^\s*(?:Q(?:uestion)?\.?\s*)?\d+\s*[\)\.\-:]\s*",
+            "",
+            block,
+            flags=re.I
+        )
+
+        if len(block.split()) >= 3:
+            questions.append(
+                block
+            )
+
+    # Paragraph fallback
+    if len(questions) < 2:
+
+        paragraphs = re.split(
+            r"\n\s*\n",
+            text
+        )
+
+        fallback = []
+
+        for paragraph in paragraphs:
+
+            paragraph = clean_text(
+                paragraph
+            )
+
+            if len(paragraph.split()) >= 5:
+                fallback.append(
+                    paragraph
+                )
+
+        if len(fallback) >= 2:
+            questions = fallback
+
+    unique = []
+    seen = set()
+
+    for question in questions:
+
+        key = normalize_text(
+            question
+        )
+
+        if key and key not in seen:
+
+            unique.append(
+                question
+            )
+
+            seen.add(key)
+
+    return unique
+
+
+# ============================================================
+# VIEW EXTRACTED TEXT
 # ============================================================
 
 if st.session_state.assessment_text:
@@ -1979,19 +2088,19 @@ if st.session_state.assessment_text:
 
         st.text(
             st.session_state.assessment_text[
-                :15000
+                :20000
             ]
         )
 
 
 # ============================================================
-# ANALYZE
+# STEP 4
 # ============================================================
 
-st.header("4️⃣ Analyze Quiz")
+st.header("4️⃣ Analyze Assessment")
 
 if st.button(
-    "🔍 Analyze Quiz",
+    "🔍 Analyze Assessment",
     type="primary",
     use_container_width=True
 ):
@@ -2011,7 +2120,7 @@ if st.button(
     else:
 
         with st.spinner(
-            "Analyzing the quiz questions..."
+            "Checking alignment..."
         ):
 
             analysis = analyze_questions(
@@ -2021,84 +2130,78 @@ if st.button(
                 target_bloom
             )
 
-        st.session_state.analysis = analysis
+        st.session_state.analysis = (
+            analysis
+        )
+
         st.session_state.analysis_complete = True
-        st.session_state.last_overall = None
+
+        st.session_state.revision_options = []
+
+        st.session_state.revision_question_index = None
 
         st.success(
-            "Quiz analysis completed."
+            "Assessment analysis completed."
         )
 
 
 # ============================================================
-# MAIN RESULTS
+# RESULTS
 # ============================================================
 
 if st.session_state.analysis:
 
     analysis = st.session_state.analysis
 
-    current_overall = overall_score(
+    overall = overall_score(
         analysis
     )
-
-    # --------------------------------------------------------
-    # CELEBRATION
-    # --------------------------------------------------------
-
-    if st.session_state.celebrate_question:
-
-        st.balloons()
-
-        st.success(
-            "🎉 This question has reached the "
-            "Attained level!"
-        )
-
-        st.session_state.celebrate_question = False
-
-    if st.session_state.celebrate_overall:
-
-        st.balloons()
-
-        st.success(
-            "🎉 The overall quiz has reached "
-            "the Attained level!"
-        )
-
-        st.session_state.celebrate_overall = False
-
 
     # ========================================================
     # OVERALL SCORE
     # ========================================================
 
-    st.header("5️⃣ Overall OBE Alignment")
+    st.header("5️⃣ Overall Alignment")
 
-    if current_overall >= ATTAINED_THRESHOLD:
+    if overall >= 85:
 
         st.success(
-            f"🏆 Overall Score: "
-            f"{current_overall:.0f}% — Attained"
+            f"🎯 {overall:.0f}% — Strong alignment"
         )
 
-    elif current_overall >= 50:
+    elif overall >= 75:
+
+        st.success(
+            f"🟢 {overall:.0f}% — Attained"
+        )
+
+    elif overall >= 65:
 
         st.warning(
-            f"🟡 Overall Score: "
-            f"{current_overall:.0f}% — Review"
+            f"🟡 {overall:.0f}% — Minor revision recommended"
+        )
+
+    elif overall >= 50:
+
+        st.warning(
+            f"🟠 {overall:.0f}% — Review needed"
         )
 
     else:
 
         st.error(
-            f"🔴 Overall Score: "
-            f"{current_overall:.0f}% — Needs Revision"
+            f"🔴 {overall:.0f}% — Needs revision"
         )
+
+    st.caption(
+        "This score is an OBE Alignment Indicator based "
+        "on the stated CLO/PLO, Bloom level and observable "
+        "features of the question."
+    )
 
 
     # ========================================================
-    # SCORE CARDS
+    # AVERAGE METRICS
     # ========================================================
 
     metric_names = [
@@ -2107,14 +2210,14 @@ if st.session_state.analysis:
         "Bloom",
         "Relevance",
         "Clarity",
-        "Measurability",
+        "Measurability"
     ]
 
-    average_metrics = {}
+    averages = {}
 
     for metric in metric_names:
 
-        average_metrics[metric] = round(
+        averages[metric] = round(
             sum(
                 item[metric]
                 for item in analysis
@@ -2123,70 +2226,110 @@ if st.session_state.analysis:
             1
         )
 
-    metric_columns = st.columns(6)
+    cols = st.columns(6)
 
-    for column, metric in zip(
-        metric_columns,
+    for col, metric in zip(
+        cols,
         metric_names
     ):
 
-        with column:
+        with col:
 
             st.metric(
                 metric,
-                f"{average_metrics[metric]:.0f}%"
+                f"{averages[metric]:.0f}%"
             )
 
 
     # ========================================================
-    # ONE GRAPH
+    # ONE GRAPH ONLY
     # ========================================================
 
     st.subheader(
-        "📈 Alignment Overview"
+        "📊 Alignment Overview"
     )
 
-    chart_df = pd.DataFrame(
+    graph_df = pd.DataFrame(
         {
             "Metric": metric_names,
             "Score": [
-                average_metrics[metric]
-                for metric in metric_names
-            ],
+                averages[m]
+                for m in metric_names
+            ]
         }
     )
 
     st.bar_chart(
-        chart_df.set_index(
+        graph_df.set_index(
             "Metric"
         )
     )
 
 
     # ========================================================
-    # ATTAINED SECTION
+    # QUESTION-BY-QUESTION OVERVIEW
     # ========================================================
 
-    st.header("🏆 Attained")
+    st.header(
+        "6️⃣ Question Overview"
+    )
 
-    attained_questions = [
-        item
-        for item in analysis
-        if item["Overall"] >= ATTAINED_THRESHOLD
-    ]
+    overview_rows = []
 
-    if attained_questions:
+    for item in analysis:
 
-        st.success(
-            f"{len(attained_questions)} "
-            "question(s) have reached 75% or above."
+        overview_rows.append(
+            {
+                "Question": (
+                    f"Q{item['index'] + 1}"
+                ),
+                "Type": item["Question Type"],
+                "CLO": item["CLO Match"],
+                "PLO": item["PLO Match"],
+                "Bloom": item["Bloom"],
+                "Clarity": item["Clarity"],
+                "Overall": item["Overall"],
+                "Status": status_for_score(
+                    item["Overall"]
+                )
+            }
         )
 
-        for item in attained_questions:
+    overview_df = pd.DataFrame(
+        overview_rows
+    )
+
+    st.dataframe(
+        overview_df,
+        use_container_width=True,
+        hide_index=True
+    )
+
+
+    # ========================================================
+    # ATTAINED QUESTIONS
+    # ========================================================
+
+    st.header("🏆 Attained Questions")
+
+    attained = [
+        item
+        for item in analysis
+        if item["Overall"] >= 75
+    ]
+
+    if attained:
+
+        st.success(
+            f"{len(attained)} question(s) are at "
+            "the Attained level."
+        )
+
+        for item in attained:
 
             with st.expander(
                 f"🟢 Q{item['index'] + 1} — "
-                f"{item['Overall']:.0f}% — Attained"
+                f"{item['Overall']:.0f}%"
             ):
 
                 st.write(
@@ -2194,177 +2337,157 @@ if st.session_state.analysis:
                 )
 
                 st.caption(
-                    f"Type: {item['Question Type']}"
-                )
-
-                st.caption(
-                    f"CLO: {item['clo'] or 'Not specified'}"
-                )
-
-                st.caption(
-                    f"PLO: {item['plo'] or 'Not specified'}"
+                    score_message(
+                        item["Overall"]
+                    )
                 )
 
     else:
 
         st.info(
-            "No questions have reached the "
-            "75% Attained threshold yet."
+            "No question has reached 75% yet."
         )
 
 
     # ========================================================
-    # QUESTION IMPROVEMENT
+    # QUESTION REVISION
     # ========================================================
 
-    st.header("6️⃣ Improve a Question")
-
-    st.write(
-        "Select a question below. OBE Quiz Checker will "
-        "automatically identify a practical improvement "
-        "and preserve the original subject, topic and task."
+    st.header(
+        "7️⃣ Improve a Question"
     )
 
-    question_options = []
+    st.write(
+        "Choose one question. The tool will explain "
+        "the actual issue and generate a practical "
+        "revision using the original question."
+    )
+
+    labels = []
 
     for item in analysis:
 
-        label = (
-            f"{score_icon(item['Overall'])} "
-            f"Q{item['index'] + 1} — "
+        labels.append(
+            f"{item['index'] + 1}. "
             f"{item['Overall']:.0f}% — "
-            f"{item['Question Type']}"
-        )
-
-        question_options.append(
-            label
+            f"{item['Problem Area']}"
         )
 
     selected_label = st.selectbox(
-        "Select a question",
-        question_options
+        "Select a question to review",
+        labels
     )
 
-    selected_position = (
-        question_options.index(
-            selected_label
-        )
+    selected_position = labels.index(
+        selected_label
     )
 
-    selected_item = analysis[
+    selected = analysis[
         selected_position
     ]
 
+
+    # --------------------------------------------------------
+    # CURRENT QUESTION
+    # --------------------------------------------------------
+
     st.subheader(
-        f"Q{selected_item['index'] + 1}"
+        f"Q{selected['index'] + 1} — "
+        f"Current Question"
     )
 
     st.info(
-        selected_item["question"]
+        selected["question"]
+    )
+
+    st.write(
+        f"**Current alignment: "
+        f"{selected['Overall']:.0f}% — "
+        f"{status_for_score(selected['Overall'])}**"
     )
 
 
     # --------------------------------------------------------
-    # QUESTION METRICS
+    # ACTUAL PROBLEM
     # --------------------------------------------------------
 
-    question_metric_columns = st.columns(6)
+    st.subheader(
+        "🔎 What is the problem?"
+    )
 
-    for column, metric in zip(
-        question_metric_columns,
-        metric_names
-    ):
-
-        with column:
-
-            st.metric(
-                metric,
-                f"{selected_item[metric]:.0f}%"
-            )
-
-
-    st.write(
-        f"**Question Type:** "
-        f"{selected_item['Question Type']}"
+    st.warning(
+        selected["Problem"]
     )
 
     st.write(
-        f"**CLO:** "
-        f"{selected_item['clo'] or 'Not specified'}"
+        f"**Area:** {selected['Problem Area']}"
     )
 
-    st.write(
-        f"**PLO:** "
-        f"{selected_item['plo'] or 'Not specified'}"
-    )
+    if selected["CLO"]:
 
-    detected_verb, detected_bloom = find_bloom_verb(
-        selected_item["question"]
-    )
-
-    bloom_text = detected_bloom
-
-    if detected_verb:
-        bloom_text += (
-            f" ({detected_verb})"
+        st.write(
+            f"**Best matching CLO:** "
+            f"{selected['CLO']}"
         )
 
-    st.write(
-        f"**Detected Bloom Level:** {bloom_text}"
+    if selected["PLO"]:
+
+        st.write(
+            f"**Best matching PLO:** "
+            f"{selected['PLO']}"
+        )
+
+    detected_verb, detected_bloom = (
+        find_bloom_verb(
+            selected["question"]
+        )
     )
 
+    if detected_verb:
 
-    # ========================================================
-    # GENERATE PRACTICAL REVISIONS
-    # ========================================================
+        st.write(
+            f"**Detected action:** "
+            f"{detected_verb} "
+            f"({detected_bloom})"
+        )
+
+    else:
+
+        st.write(
+            "**Detected action:** "
+            "No clear Bloom action verb"
+        )
+
+
+    # --------------------------------------------------------
+    # GENERATE
+    # --------------------------------------------------------
 
     if st.button(
-        "✨ Generate Practical Revision",
+        "✨ Show Practical Revision",
         type="primary",
         use_container_width=True
     ):
 
-        with st.spinner(
-            "Creating a practical revision from "
-            "the actual question..."
-        ):
-
-            revisions = generate_practical_revisions(
-                selected_item["question"],
-                selected_item["clo"],
-                selected_item["plo"],
-                target_bloom,
-                selected_item["Question Type"]
-            )
+        revisions = generate_revision_options(
+            selected["question"],
+            selected["CLO"],
+            selected["PLO"],
+            target_bloom
+        )
 
         st.session_state.revision_options = (
             revisions
         )
 
         st.session_state.revision_question_index = (
-            selected_item["index"]
+            selected["index"]
         )
 
-        if revisions:
 
-            st.success(
-                f"{len(revisions)} practical revision(s) "
-                "found."
-            )
-
-        else:
-
-            st.warning(
-                "No safe automatic revision was found. "
-                "The tool did not generate an unrelated "
-                "question because preserving the original "
-                "context is more important."
-            )
-
-
-    # ========================================================
-    # REVISION OPTIONS
-    # ========================================================
+    # --------------------------------------------------------
+    # REVISION
+    # --------------------------------------------------------
 
     revisions = (
         st.session_state.revision_options
@@ -2372,54 +2495,93 @@ if st.session_state.analysis:
 
     same_question = (
         st.session_state.revision_question_index
-        == selected_item["index"]
+        == selected["index"]
     )
 
     if revisions and same_question:
 
         st.subheader(
-            "✨ Practical Revision"
+            "🛠 Recommended Revision"
         )
 
-        for revision_number, suggestion in enumerate(
+        for number, option in enumerate(
             revisions
         ):
 
             st.markdown(
-                f"### Revision {revision_number + 1}"
+                f"### Option {number + 1} — "
+                f"{option['focus']}"
             )
 
             st.write(
-                suggestion["text"]
+                "**Original:**"
             )
 
             st.info(
-                "💡 "
-                + suggestion["reason"]
+                selected["question"]
+            )
+
+            st.write(
+                "**Revised question:**"
+            )
+
+            st.success(
+                option["revision"]
+            )
+
+            st.write(
+                "**What changed:**"
+            )
+
+            st.write(
+                option["reason"]
+            )
+
+            # ----------------------------------------------
+            # SCORE CHANGE
+            # ----------------------------------------------
+
+            old_score = option[
+                "old_score"
+            ]
+
+            new_score = option[
+                "new_score"
+            ]
+
+            gain = option[
+                "gain"
+            ]
+
+            st.write(
+                f"**Alignment indicator:** "
+                f"{old_score:.0f}% → "
+                f"{new_score:.0f}% "
+                f"**(+{gain:.0f} points)**"
             )
 
             st.caption(
-                f"Focus: {suggestion['focus']} | "
-                f"Context preserved: "
-                f"{suggestion['preservation']:.0f}%"
+                "The new score is calculated only after "
+                "checking that the original topic and "
+                "important details have been preserved."
             )
 
-            # ------------------------------------------------
+            # ----------------------------------------------
             # USE REVISION
-            # ------------------------------------------------
+            # ----------------------------------------------
 
             if st.button(
                 "✅ Use This Revision",
                 key=(
-                    f"use_revision_"
-                    f"{selected_item['index']}_"
-                    f"{revision_number}"
+                    f"revision_"
+                    f"{selected['index']}_"
+                    f"{number}"
                 ),
                 use_container_width=True
             ):
 
                 old_question_score = (
-                    selected_item["Overall"]
+                    selected["Overall"]
                 )
 
                 old_overall = overall_score(
@@ -2427,24 +2589,20 @@ if st.session_state.analysis:
                 )
 
                 question_index = (
-                    selected_item["index"]
+                    selected["index"]
                 )
 
-                revised_question = (
-                    suggestion["text"]
-                )
-
-                # Replace the actual question
                 st.session_state.questions[
                     question_index
-                ] = revised_question
+                ] = option["revision"]
 
-                # Re-analyze entire quiz
-                updated_analysis = analyze_questions(
-                    st.session_state.questions,
-                    clos,
-                    plos,
-                    target_bloom
+                updated_analysis = (
+                    analyze_questions(
+                        st.session_state.questions,
+                        clos,
+                        plos,
+                        target_bloom
+                    )
                 )
 
                 new_question_score = (
@@ -2465,148 +2623,55 @@ if st.session_state.analysis:
 
                 st.session_state.revision_question_index = None
 
-                # ------------------------------------------------
-                # ATTAINMENT TRANSITIONS
-                # ------------------------------------------------
-
                 if (
-                    old_question_score
-                    < ATTAINED_THRESHOLD
-                    and new_question_score
-                    >= ATTAINED_THRESHOLD
+                    old_question_score < 75
+                    and new_question_score >= 75
                 ):
 
                     st.session_state.celebrate_question = True
 
                 if (
-                    old_overall
-                    < ATTAINED_THRESHOLD
-                    and new_overall
-                    >= ATTAINED_THRESHOLD
+                    old_overall < 75
+                    and new_overall >= 75
                 ):
 
                     st.session_state.celebrate_overall = True
 
-                # Store latest overall
-                st.session_state.last_overall = (
-                    new_overall
-                )
-
-                # Show immediate score change
                 st.success(
-                    f"Question score changed from "
-                    f"{old_question_score:.0f}% "
-                    f"→ "
+                    f"Question updated: "
+                    f"{old_question_score:.0f}% → "
                     f"{new_question_score:.0f}%"
                 )
 
-                if (
-                    new_question_score
-                    >= ATTAINED_THRESHOLD
-                ):
+                if new_question_score >= 75:
 
                     st.success(
-                        "🟢 Attained 🎉"
+                        "🏆 Question Attained!"
                     )
 
-                elif new_question_score >= 50:
-
-                    st.warning(
-                        "🟡 Review"
-                    )
-
-                else:
-
-                    st.error(
-                        "🔴 Needs Revision"
-                    )
+                    st.balloons()
 
                 st.rerun()
 
             st.divider()
 
 
-    # ========================================================
-    # ASSESSMENT OVERVIEW
-    # ========================================================
+    elif same_question:
 
-    st.header("7️⃣ Assessment Overview")
-
-    overview_rows = []
-
-    for item in analysis:
-
-        overview_rows.append(
-            {
-                "Question": (
-                    f"Q{item['index'] + 1}"
-                ),
-                "Type": item["Question Type"],
-                "CLO": item["CLO Match"],
-                "PLO": item["PLO Match"],
-                "Bloom": item["Bloom"],
-                "Relevance": item["Relevance"],
-                "Clarity": item["Clarity"],
-                "Measurability": item["Measurability"],
-                "Overall": item["Overall"],
-                "Status": score_status(
-                    item["Overall"]
-                ),
-            }
+        st.info(
+            "The tool could not find a safe automatic "
+            "revision that improves the alignment while "
+            "preserving the original meaning and topic."
         )
-
-    overview_df = pd.DataFrame(
-        overview_rows
-    )
-
-    st.dataframe(
-        overview_df,
-        use_container_width=True,
-        hide_index=True
-    )
-
-
-    # ========================================================
-    # QUESTIONS NEEDING REVISION
-    # ========================================================
-
-    questions_needing_revision = [
-        item
-        for item in analysis
-        if item["Overall"] < ATTAINED_THRESHOLD
-    ]
-
-    if questions_needing_revision:
-
-        st.subheader(
-            "🛠 Questions Needing Attention"
-        )
-
-        sorted_questions = sorted(
-            questions_needing_revision,
-            key=lambda item: item["Overall"]
-        )
-
-        for item in sorted_questions[:10]:
-
-            st.write(
-                f"{score_icon(item['Overall'])} "
-                f"**Q{item['index'] + 1} — "
-                f"{item['Overall']:.0f}%**"
-            )
-
-            st.caption(
-                item["question"]
-            )
 
 
     # ========================================================
     # SUMMARY
     # ========================================================
 
-    st.header("8️⃣ Summary")
+    st.header("8️⃣ Workshop Summary")
 
-    total_questions = len(
+    total = len(
         analysis
     )
 
@@ -2614,36 +2679,32 @@ if st.session_state.analysis:
         [
             item
             for item in analysis
-            if item["Overall"]
-            >= ATTAINED_THRESHOLD
+            if item["Overall"] >= 75
         ]
     )
 
-    revision_count = (
-        total_questions
-        - attained_count
-    )
+    revision_count = total - attained_count
 
-    summary_columns = st.columns(3)
+    c1, c2, c3 = st.columns(3)
 
-    with summary_columns[0]:
+    with c1:
 
         st.metric(
-            "Total Questions",
-            total_questions
+            "Questions",
+            total
         )
 
-    with summary_columns[1]:
+    with c2:
 
         st.metric(
             "Attained",
             attained_count
         )
 
-    with summary_columns[2]:
+    with c3:
 
         st.metric(
-            "Need Revision",
+            "Need Attention",
             revision_count
         )
 
@@ -2652,7 +2713,7 @@ if st.session_state.analysis:
     # EXPORT
     # ========================================================
 
-    st.header("9️⃣ Export")
+    st.header("9️⃣ Export Report")
 
     export_rows = []
 
@@ -2660,23 +2721,25 @@ if st.session_state.analysis:
 
         export_rows.append(
             {
-                "Question Number": (
-                    item["index"] + 1
+                "Question": (
+                    f"Q{item['index'] + 1}"
                 ),
-                "Question": item["question"],
+                "Question Text": item["question"],
                 "Question Type": item["Question Type"],
-                "CLO": item["clo"],
-                "PLO": item["plo"],
+                "Best Matching CLO": item["CLO"],
                 "CLO Match": item["CLO Match"],
+                "Best Matching PLO": item["PLO"],
                 "PLO Match": item["PLO Match"],
                 "Bloom": item["Bloom"],
                 "Relevance": item["Relevance"],
                 "Clarity": item["Clarity"],
                 "Measurability": item["Measurability"],
-                "Overall": item["Overall"],
-                "Status": score_status(
+                "Overall Alignment": item["Overall"],
+                "Problem Area": item["Problem Area"],
+                "Problem": item["Problem"],
+                "Status": status_for_score(
                     item["Overall"]
-                ),
+                )
             }
         )
 
@@ -2691,7 +2754,7 @@ if st.session_state.analysis:
     )
 
     st.download_button(
-        "⬇️ Download OBE Quiz Report",
+        "⬇️ Download OBE Quiz Checker Report",
         data=csv_data,
         file_name="obe_quiz_checker_report.csv",
         mime="text/csv",
@@ -2700,13 +2763,14 @@ if st.session_state.analysis:
 
 
 # ============================================================
-# INITIAL MESSAGE
+# INITIAL INSTRUCTION
 # ============================================================
 
 if not st.session_state.analysis:
 
     st.info(
-        "Start by entering your CLOs/PLOs, uploading the "
-        "complete quiz or assessment, and clicking "
-        "**Read Assessment** followed by **Analyze Quiz**."
+        "Enter the CLOs/PLOs → upload the complete assessment "
+        "→ Read Assessment → Analyze Assessment. "
+        "Then select any question to see the actual problem "
+        "and a practical revision."
     )
