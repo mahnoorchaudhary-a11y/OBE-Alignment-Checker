@@ -1,10 +1,9 @@
 import streamlit as st
-import pandas as pd
 import re
+import pandas as pd
 
 # ============================================================
-# OBE ASSESSMENT STUDIO
-# Discipline-Neutral CLO/PLO Alignment Checker
+# PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
@@ -14,7 +13,7 @@ st.set_page_config(
 )
 
 # ============================================================
-# STYLE
+# CSS
 # ============================================================
 
 st.markdown("""
@@ -33,47 +32,53 @@ st.markdown("""
 
 .section-title {
     font-size: 23px;
-    font-weight: 700;
-    margin-top: 28px;
+    font-weight: 750;
+    margin-top: 25px;
     margin-bottom: 12px;
 }
 
-.score-card {
-    padding: 22px;
+.range-card {
+    padding: 18px;
+    border-radius: 12px;
+    border: 1px solid #ddd;
+    margin-bottom: 10px;
+}
+
+.score-box {
+    padding: 20px;
     border-radius: 14px;
     text-align: center;
     border: 1px solid #ddd;
-    margin-bottom: 15px;
 }
 
 .score-number {
-    font-size: 44px;
+    font-size: 42px;
     font-weight: 800;
 }
 
-.good {
+.success-box {
+    padding: 15px;
+    border-radius: 10px;
     background: #eaf7ee;
-    border-left: 6px solid #2e8b57;
+    border: 1px solid #9bd2aa;
 }
 
-.medium {
-    background: #fff8e6;
-    border-left: 6px solid #e0a000;
-}
-
-.low {
-    background: #fdecec;
-    border-left: 6px solid #d9534f;
+.warning-box {
+    padding: 15px;
+    border-radius: 10px;
+    background: #fff7df;
+    border: 1px solid #e5c76b;
 }
 
 .info-box {
     padding: 15px;
     border-radius: 10px;
-    background: #f3f7fc;
-    border-left: 5px solid #3182ce;
+    background: #eef5ff;
+    border: 1px solid #b7ccef;
 }
 </style>
 """, unsafe_allow_html=True)
+
 
 # ============================================================
 # CONSTANTS
@@ -106,7 +111,7 @@ QUESTION_TYPES = [
     "Other"
 ]
 
-ASSESSMENT_EVIDENCE = [
+EVIDENCE_TYPES = [
     "Written Response",
     "Calculation / Numerical Work",
     "Analysis / Interpretation",
@@ -121,870 +126,568 @@ ASSESSMENT_EVIDENCE = [
     "Other"
 ]
 
+RANGES = {
+    "Foundational": {
+        "description": "Build understanding and basic application.",
+        "blooms": ["Remember", "Understand", "Apply"],
+        "difficulty": "Easy to Moderate"
+    },
+    "Applied": {
+        "description": "Apply knowledge, solve problems, analyze information and situations.",
+        "blooms": ["Apply", "Analyze"],
+        "difficulty": "Moderate"
+    },
+    "Advanced": {
+        "description": "Evaluate, justify, design, create and demonstrate higher-order thinking.",
+        "blooms": ["Evaluate", "Create"],
+        "difficulty": "Challenging"
+    }
+}
+
+
 # ============================================================
 # SESSION STATE
 # ============================================================
 
-if "question" not in st.session_state:
-    st.session_state.question = ""
+defaults = {
+    "generated_questions": [],
+    "selected_question": "",
+    "recommended_answer": "",
+    "marking_scheme": "",
+    "alignment_result": None,
+    "faculty_decision": "",
+    "generated": False
+}
 
-if "answer" not in st.session_state:
-    st.session_state.answer = ""
-
-if "checked" not in st.session_state:
-    st.session_state.checked = False
-
-if "results" not in st.session_state:
-    st.session_state.results = None
-
-if "decision" not in st.session_state:
-    st.session_state.decision = ""
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
 
 
 # ============================================================
-# BASIC TEXT FUNCTIONS
+# HELPER FUNCTIONS
 # ============================================================
+
+def clean_text(text):
+    return re.sub(r"\s+", " ", str(text).strip())
+
 
 def normalize(text):
-    if text is None:
-        return ""
-
-    text = str(text).lower()
-
-    text = re.sub(
-        r"[^a-z0-9\s]",
-        " ",
-        text
-    )
-
-    text = re.sub(
-        r"\s+",
-        " ",
-        text
-    )
-
-    return text.strip()
+    text = clean_text(text).lower()
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 
-def words(text):
-    return set(
-        re.findall(
-            r"\b[a-z]{4,}\b",
-            normalize(text)
-        )
-    )
+def get_words(text):
+    stopwords = {
+        "the", "a", "an", "and", "or", "of", "to", "in",
+        "on", "for", "with", "by", "from", "be", "is", "are",
+        "ability", "demonstrate", "understand", "student",
+        "students", "able"
+    }
+
+    return {
+        word for word in normalize(text).split()
+        if len(word) > 2 and word not in stopwords
+    }
 
 
-def overlap_score(text1, text2):
+def conceptual_overlap(text1, text2):
+    """
+    Supporting signal only.
+    It is NOT the primary alignment mechanism.
+    """
 
-    a = words(text1)
-    b = words(text2)
+    words1 = get_words(text1)
+    words2 = get_words(text2)
 
-    if not a or not b:
+    if not words1 or not words2:
         return 0
 
-    common = a.intersection(b)
+    common = words1.intersection(words2)
 
-    return min(
-        100,
-        round((len(common) / max(len(a), 1)) * 100)
-    )
+    return round((len(common) / max(len(words1), len(words2))) * 100)
 
 
 # ============================================================
-# ACTION VERB DETECTION
+# BLOOM VERBS
 # ============================================================
 
 BLOOM_VERBS = {
-
     "Remember": [
-        "define",
-        "identify",
-        "list",
-        "name",
-        "state",
-        "recall",
-        "recognize",
-        "label",
-        "select"
+        "define", "identify", "list", "name", "recall",
+        "state", "recognize", "label", "match"
     ],
 
     "Understand": [
-        "explain",
-        "describe",
-        "summarize",
-        "interpret",
-        "classify",
-        "discuss",
-        "illustrate",
-        "paraphrase"
+        "explain", "describe", "summarize", "interpret",
+        "classify", "discuss", "illustrate", "compare"
     ],
 
     "Apply": [
-        "apply",
-        "calculate",
-        "solve",
-        "use",
-        "demonstrate",
-        "implement",
-        "perform",
-        "execute",
-        "compute"
+        "apply", "calculate", "use", "demonstrate",
+        "solve", "perform", "implement", "execute"
     ],
 
     "Analyze": [
-        "analyze",
-        "analyse",
-        "compare",
-        "contrast",
-        "differentiate",
-        "examine",
-        "investigate",
-        "categorize",
-        "distinguish",
-        "deconstruct",
+        "analyze", "analyse", "differentiate", "examine",
+        "investigate", "interpret", "compare", "distinguish",
         "break down"
     ],
 
     "Evaluate": [
-        "evaluate",
-        "assess",
-        "judge",
-        "justify",
-        "critique",
-        "defend",
-        "argue",
-        "recommend",
-        "appraise",
-        "evaluate",
-        "take a position",
-        "support your conclusion"
+        "evaluate", "justify", "assess", "critique",
+        "defend", "judge", "appraise", "recommend"
     ],
 
     "Create": [
-        "create",
-        "design",
-        "develop",
-        "construct",
-        "formulate",
-        "produce",
-        "propose",
-        "generate",
-        "build",
-        "develop a solution",
-        "design a solution"
+        "create", "design", "develop", "construct",
+        "formulate", "produce", "propose", "develop"
     ]
 }
 
 
 def detect_bloom(question):
-
     q = normalize(question)
 
     detected = []
 
     for level, verbs in BLOOM_VERBS.items():
-
         for verb in verbs:
-
-            if verb in q:
+            if re.search(r"\b" + re.escape(verb) + r"\b", q):
                 detected.append(level)
-                break
 
-    if not detected:
-        return "Not clearly detected"
-
-    # Highest detected cognitive level
-    order = {
-        "Remember": 1,
-        "Understand": 2,
-        "Apply": 3,
-        "Analyze": 4,
-        "Evaluate": 5,
-        "Create": 6
-    }
-
-    return max(
-        detected,
-        key=lambda x: order[x]
-    )
+    return list(dict.fromkeys(detected))
 
 
-# ============================================================
-# BLOOM ALIGNMENT
-# ============================================================
-
-def check_bloom(selected, question):
-
-    if not question:
-        return 0, "Question is missing."
-
+def bloom_alignment(selected_bloom, question):
     detected = detect_bloom(question)
 
-    if detected == selected:
+    if not question.strip():
+        return 0, "No question provided."
 
-        return 100, (
-            f"The question contains evidence consistent "
-            f"with the selected {selected} level."
-        )
+    if not detected:
+        return 100, "The question does not contain an obvious Bloom verb; faculty-selected Bloom level is used."
 
-    if detected == "Not clearly detected":
+    if selected_bloom in detected:
+        return 100, f"The question contains language consistent with {selected_bloom}."
 
-        return 65, (
-            f"The selected Bloom level is {selected}, but "
-            f"the question does not contain a clearly "
-            f"identifiable cognitive action."
-        )
+    # Adjacent levels are still acceptable when the task demand is compatible.
+    order = {level: i for i, level in enumerate(BLOOM_LEVELS)}
 
-    order = {
-        "Remember": 1,
-        "Understand": 2,
-        "Apply": 3,
-        "Analyze": 4,
-        "Evaluate": 5,
-        "Create": 6
-    }
+    distances = [
+        abs(order[selected_bloom] - order[level])
+        for level in detected
+    ]
 
-    selected_value = order[selected]
-    detected_value = order[detected]
+    if min(distances) == 1:
+        return 90, "The cognitive demand is close to the selected Bloom level."
 
-    difference = abs(
-        selected_value - detected_value
-    )
-
-    if difference == 1:
-
-        return 75, (
-            f"The question appears to operate around "
-            f"{detected}, while {selected} was selected."
-        )
-
-    return 45, (
-        f"The question appears to require {detected}, "
-        f"which differs substantially from the selected "
-        f"{selected} level."
-    )
+    return 75, "The wording may need revision to better reflect the selected Bloom level."
 
 
 # ============================================================
-# GENERIC CLO ALIGNMENT
+# GENERIC EVIDENCE COMPATIBILITY
 # ============================================================
 
-def check_clo_alignment(
-    clo,
-    question,
-    question_type,
-    evidence_type
-):
-
-    if not clo or not question:
-        return 0, "CLO or question is missing."
-
-    clo_words = words(clo)
-    question_words = words(question)
-
-    common = clo_words.intersection(
-        question_words
-    )
-
-    # --------------------------------------------------------
-    # IMPORTANT:
-    # We DO NOT give 100 merely because a CLO was selected.
-    # --------------------------------------------------------
-
-    semantic_overlap = overlap_score(
-        clo,
-        question
-    )
-
-    # --------------------------------------------------------
-    # Evidence/action compatibility
-    # --------------------------------------------------------
-
-    clo_text = normalize(clo)
-    q_text = normalize(question)
-    evidence = normalize(evidence_type)
-    qtype = normalize(question_type)
-
-    evidence_score = 50
-
-    # Generic evidence matching
-    evidence_terms = {
-        "oral performance": [
-            "oral",
-            "speak",
-            "speaking",
-            "presentation",
-            "communicate",
-            "present"
-        ],
-
-        "practical performance": [
-            "perform",
-            "demonstrate",
-            "experiment",
-            "operate",
-            "conduct",
-            "execute"
-        ],
-
-        "calculation numerical work": [
-            "calculate",
-            "solve",
-            "compute",
-            "determine",
-            "numerical"
-        ],
-
-        "analysis interpretation": [
-            "analyze",
-            "analyse",
-            "interpret",
-            "compare",
-            "evaluate",
-            "examine"
-        ],
-
-        "product design": [
-            "design",
-            "develop",
-            "create",
-            "construct",
-            "build",
-            "produce"
-        ],
-
-        "code program": [
-            "code",
-            "program",
-            "implement",
-            "develop",
-            "algorithm"
-        ],
-
-        "written response": [
-            "write",
-            "explain",
-            "describe",
-            "discuss",
-            "essay",
-            "response"
-        ],
-
-        "project portfolio": [
-            "project",
-            "develop",
-            "produce",
-            "portfolio",
-            "create"
-        ]
-    }
-
-    matched_evidence = False
-
-    for evidence_name, terms in evidence_terms.items():
-
-        if evidence_name in evidence:
-
-            if any(
-                term in q_text
-                for term in terms
-            ):
-                matched_evidence = True
-
-    if matched_evidence:
-        evidence_score = 100
-
-    # --------------------------------------------------------
-    # Question type clues
-    # --------------------------------------------------------
-
-    type_score = 60
-
-    type_mapping = {
-
-        "oral presentation": [
-            "present",
-            "presentation",
-            "speak",
-            "explain"
-        ],
-
-        "viva": [
-            "explain",
-            "answer",
-            "justify",
-            "defend"
-        ],
-
-        "problem solving": [
-            "solve",
-            "calculate",
-            "determine",
-            "apply"
-        ],
-
-        "practical laboratory": [
-            "perform",
-            "conduct",
-            "experiment",
-            "demonstrate"
-        ],
-
-        "programming task": [
-            "code",
-            "program",
-            "implement",
-            "algorithm"
-        ],
-
-        "design task": [
-            "design",
-            "develop",
-            "construct",
-            "create"
-        ],
-
-        "case study": [
-            "analyze",
-            "analyse",
-            "recommend",
-            "evaluate",
-            "interpret"
-        ],
-
-        "essay written": [
-            "write",
-            "explain",
-            "analyze",
-            "evaluate",
-            "discuss"
-        ]
-    }
-
-    for type_name, terms in type_mapping.items():
-
-        if type_name in qtype:
-
-            if any(
-                term in q_text
-                for term in terms
-            ):
-                type_score = 100
-
-    # --------------------------------------------------------
-    # Final CLO evidence score
-    # --------------------------------------------------------
-
-    if semantic_overlap >= 50:
-        overlap_component = 100
-
-    elif semantic_overlap >= 25:
-        overlap_component = 80
-
-    elif semantic_overlap >= 10:
-        overlap_component = 65
-
-    else:
-        overlap_component = 35
-
-    final_score = round(
-        (
-            overlap_component * 0.40
-            + evidence_score * 0.35
-            + type_score * 0.25
-        )
-    )
-
-    # Do not allow keyword overlap alone to make score perfect
-    if final_score >= 95 and evidence_score < 100:
-        final_score = 90
-
-    if final_score >= 90:
-
-        message = (
-            "The assessment provides strong evidence that "
-            "students are being asked to demonstrate the "
-            "selected CLO."
-        )
-
-    elif final_score >= 75:
-
-        message = (
-            "The assessment provides reasonable evidence "
-            "of the CLO, but the required student action "
-            "could be made clearer."
-        )
-
-    elif final_score >= 50:
-
-        message = (
-            "The assessment provides partial evidence of "
-            "the CLO. Review what the student is actually "
-            "required to demonstrate."
-        )
-
-    else:
-
-        message = (
-            "The question does not clearly provide evidence "
-            "of the selected CLO."
-        )
-
-    return final_score, message
-
-
-# ============================================================
-# GENERIC PLO ALIGNMENT
-# ============================================================
-
-def check_plo_alignment(
-    clo,
-    plo,
-    question,
-    question_type,
-    evidence_type
-):
-
-    if not plo or not question:
-        return 0, "PLO or question is missing."
-
-    # First determine whether CLO and PLO are conceptually related
-    clo_plo_overlap = overlap_score(
-        clo,
-        plo
-    )
-
-    # Determine whether question provides evidence of PLO
-    plo_question_overlap = overlap_score(
-        plo,
-        question
-    )
-
-    # Evidence type compatibility
-    evidence = normalize(evidence_type)
-    q_text = normalize(question)
-
-    evidence_match = 50
-
-    generic_evidence_terms = {
-
-        "oral performance": [
-            "oral",
-            "speak",
-            "presentation",
-            "communicate"
-        ],
-
-        "written response": [
-            "write",
-            "written",
-            "explain",
-            "describe"
-        ],
-
-        "calculation numerical work": [
-            "calculate",
-            "solve",
-            "compute",
-            "determine"
-        ],
-
-        "analysis interpretation": [
-            "analyze",
-            "analyse",
-            "interpret",
-            "compare",
-            "evaluate"
-        ],
-
-        "practical performance": [
-            "perform",
-            "demonstrate",
-            "conduct",
-            "experiment"
-        ],
-
-        "product design": [
-            "design",
-            "create",
-            "develop",
-            "construct"
-        ],
-
-        "code program": [
-            "code",
-            "program",
-            "algorithm",
-            "implement"
-        ]
-    }
-
-    for evidence_name, terms in generic_evidence_terms.items():
-
-        if evidence_name in evidence:
-
-            if any(
-                term in q_text
-                for term in terms
-            ):
-                evidence_match = 100
-
-    # Mapping strength
-    if clo_plo_overlap >= 40:
-        mapping_score = 100
-
-    elif clo_plo_overlap >= 20:
-        mapping_score = 85
-
-    elif clo_plo_overlap >= 5:
-        mapping_score = 70
-
-    else:
-        mapping_score = 50
-
-    # Question evidence
-    if plo_question_overlap >= 30:
-        question_score = 100
-
-    elif plo_question_overlap >= 15:
-        question_score = 85
-
-    elif plo_question_overlap >= 5:
-        question_score = 70
-
-    else:
-        question_score = 45
-
-    final_score = round(
-        mapping_score * 0.35
-        + question_score * 0.35
-        + evidence_match * 0.30
-    )
-
-    if final_score >= 90:
-
-        message = (
-            "The assessment provides strong evidence toward "
-            "the selected PLO through the CLO and assessment task."
-        )
-
-    elif final_score >= 75:
-
-        message = (
-            "The assessment provides reasonable evidence "
-            "toward the selected PLO."
-        )
-
-    elif final_score >= 50:
-
-        message = (
-            "The assessment provides partial evidence toward "
-            "the PLO. Review the CLO-PLO relationship and "
-            "the evidence produced by the task."
-        )
-
-    else:
-
-        message = (
-            "The question does not clearly provide evidence "
-            "for the selected PLO."
-        )
-
-    return final_score, message
-
-
-# ============================================================
-# QUESTION TYPE ALIGNMENT
-# ============================================================
-
-def check_question_type(
-    question,
-    question_type,
-    evidence_type
-):
-
-    if not question:
-        return 0, "Question is missing."
+EVIDENCE_KEYWORDS = {
+    "Written Response": [
+        "write", "written", "essay", "paragraph", "explain",
+        "response", "answer", "discuss"
+    ],
+
+    "Calculation / Numerical Work": [
+        "calculate", "compute", "determine", "solve",
+        "numerical", "equation", "value", "formula"
+    ],
+
+    "Analysis / Interpretation": [
+        "analyze", "analyse", "interpret", "compare",
+        "examine", "differentiate", "data", "results"
+    ],
+
+    "Oral Performance": [
+        "speak", "oral", "present", "presentation",
+        "discuss", "explain verbally", "respond"
+    ],
+
+    "Practical Performance": [
+        "perform", "conduct", "carry out", "demonstrate",
+        "experiment", "procedure", "practical"
+    ],
+
+    "Product / Design": [
+        "design", "create", "develop", "construct",
+        "prototype", "product", "model"
+    ],
+
+    "Code / Program": [
+        "code", "program", "implement", "function",
+        "algorithm", "software", "application"
+    ],
+
+    "Project / Portfolio": [
+        "project", "portfolio", "collect", "document",
+        "develop", "submit"
+    ],
+
+    "Presentation": [
+        "present", "presentation", "slides",
+        "deliver", "explain"
+    ],
+
+    "Demonstration": [
+        "demonstrate", "show", "perform", "display"
+    ],
+
+    "Case Analysis": [
+        "case", "scenario", "situation", "analyze",
+        "recommend", "interpret"
+    ]
+}
+
+
+def evidence_alignment(question, evidence):
+    if evidence == "Other":
+        return 100, "Faculty selected Other evidence; no restrictive rule applied."
 
     q = normalize(question)
-    qtype = normalize(question_type)
-    evidence = normalize(evidence_type)
 
-    # --------------------------------------------------------
-    # Generic compatibility matrix
-    # --------------------------------------------------------
+    keywords = EVIDENCE_KEYWORDS.get(evidence, [])
 
-    compatibility = {
+    if any(keyword in q for keyword in keywords):
+        return 100, f"The question provides evidence through {evidence.lower()}."
 
-        "oral presentation": [
-            "oral performance",
-            "presentation"
-        ],
+    # Some evidence types can be inferred from question type.
+    return 90, f"The selected evidence type is plausible, but the question could make the required evidence more explicit."
 
-        "viva": [
-            "oral performance"
-        ],
 
-        "debate discussion": [
-            "oral performance",
-            "presentation"
-        ],
+# ============================================================
+# QUESTION TYPE COMPATIBILITY
+# ============================================================
 
-        "practical laboratory": [
-            "practical performance"
-        ],
+QUESTION_EVIDENCE_MAP = {
+    "Short Answer": [
+        "Written Response",
+        "Analysis / Interpretation"
+    ],
 
-        "demonstration": [
-            "practical performance",
-            "presentation"
-        ],
+    "Essay / Written": [
+        "Written Response",
+        "Analysis / Interpretation"
+    ],
 
-        "programming task": [
-            "code program"
-        ],
+    "MCQ": [
+        "Written Response"
+    ],
 
-        "design task": [
-            "product design"
-        ],
+    "Problem Solving": [
+        "Calculation / Numerical Work",
+        "Analysis / Interpretation",
+        "Written Response"
+    ],
 
-        "problem solving": [
-            "calculation numerical work",
-            "analysis interpretation"
-        ],
+    "Case Study": [
+        "Case Analysis",
+        "Analysis / Interpretation",
+        "Written Response"
+    ],
 
-        "case study": [
-            "case analysis",
-            "analysis interpretation"
-        ],
+    "Practical / Laboratory": [
+        "Practical Performance",
+        "Calculation / Numerical Work",
+        "Analysis / Interpretation"
+    ],
 
-        "essay written": [
-            "written response",
-            "analysis interpretation"
-        ],
+    "Project / Task": [
+        "Project / Portfolio",
+        "Product / Design",
+        "Demonstration"
+    ],
 
-        "short answer": [
-            "written response"
-        ],
+    "Oral Presentation": [
+        "Oral Performance",
+        "Presentation"
+    ],
 
-        "project task": [
-            "project portfolio",
-            "product design"
+    "Viva": [
+        "Oral Performance"
+    ],
+
+    "Debate / Discussion": [
+        "Oral Performance",
+        "Presentation"
+    ],
+
+    "Demonstration": [
+        "Demonstration",
+        "Practical Performance"
+    ],
+
+    "Simulation": [
+        "Practical Performance",
+        "Demonstration"
+    ],
+
+    "Design Task": [
+        "Product / Design",
+        "Project / Portfolio"
+    ],
+
+    "Programming Task": [
+        "Code / Program"
+    ],
+
+    "Other": [
+        "Other"
+    ]
+}
+
+
+def question_type_alignment(question_type, evidence):
+    allowed = QUESTION_EVIDENCE_MAP.get(
+        question_type,
+        ["Other"]
+    )
+
+    if evidence in allowed:
+        return 100, "Question type and evidence type are directly compatible."
+
+    return 80, "Question type and evidence type may require clarification."
+
+
+# ============================================================
+# GENERIC COMPETENCY ANALYSIS
+# ============================================================
+
+def extract_intended_actions(clo):
+    """
+    Extracts action verbs from the CLO.
+    This is used to understand the intended competency.
+    """
+
+    clo_normalized = normalize(clo)
+
+    actions = []
+
+    for level, verbs in BLOOM_VERBS.items():
+        for verb in verbs:
+            if re.search(r"\b" + re.escape(verb) + r"\b", clo_normalized):
+                actions.append((verb, level))
+
+    return actions
+
+
+def question_demonstrates_clo(clo, question, evidence):
+    """
+    Discipline-neutral CLO evidence test.
+
+    Important:
+    Exact wording is NOT required.
+
+    The question is considered strongly aligned when:
+    1. It asks the student to perform an action.
+    2. The evidence type can demonstrate the competency.
+    3. The question addresses the core subject/topic implied by the CLO.
+    """
+
+    if not clo.strip() or not question.strip():
+        return 0, "CLO or question is missing."
+
+    clo_words = get_words(clo)
+    question_words = get_words(question)
+
+    overlap = conceptual_overlap(clo, question)
+
+    actions = extract_intended_actions(clo)
+
+    # Evidence-based interpretation
+    evidence_score = 100
+
+    # Oral evidence
+    if evidence in ["Oral Performance", "Presentation"]:
+        oral_terms = [
+            "speak", "oral", "present", "presentation",
+            "discuss", "explain", "communicate"
         ]
-    }
 
-    if qtype in compatibility:
+        if any(term in normalize(question) for term in oral_terms):
+            evidence_score = 100
 
-        valid_evidence = compatibility[qtype]
+    # Practical evidence
+    elif evidence in ["Practical Performance", "Demonstration"]:
+        practical_terms = [
+            "perform", "conduct", "demonstrate",
+            "experiment", "procedure", "carry out"
+        ]
 
-        if any(
-            item in evidence
-            for item in valid_evidence
-        ):
+        if any(term in normalize(question) for term in practical_terms):
+            evidence_score = 100
 
-            return 100, (
-                "The selected assessment type is consistent "
-                "with the evidence students are expected to produce."
-            )
+    # Numerical evidence
+    elif evidence == "Calculation / Numerical Work":
+        numerical_terms = [
+            "calculate", "compute", "determine",
+            "solve", "value", "equation"
+        ]
 
-    return 70, (
-        "The assessment type is usable, but review whether "
-        "it produces the evidence required by the CLO."
-    )
+        if any(term in normalize(question) for term in numerical_terms):
+            evidence_score = 100
 
+    # Design
+    elif evidence == "Product / Design":
+        design_terms = [
+            "design", "develop", "create",
+            "construct", "prototype"
+        ]
 
-# ============================================================
-# OVERALL OBE ALIGNMENT
-# ============================================================
+        if any(term in normalize(question) for term in design_terms):
+            evidence_score = 100
 
-def calculate_obe_alignment(
-    clo_score,
-    plo_score,
-    bloom_score,
-    type_score
-):
+    # Code
+    elif evidence == "Code / Program":
+        code_terms = [
+            "code", "program", "implement",
+            "algorithm", "function"
+        ]
 
-    # IMPORTANT:
-    # Marks and difficulty are NOT included.
-    #
-    # The score measures only evidence of alignment.
+        if any(term in normalize(question) for term in code_terms):
+            evidence_score = 100
 
-    score = round(
-        (
-            clo_score
-            + plo_score
-            + bloom_score
-            + type_score
-        ) / 4,
-        1
-    )
+    # If question contains strong evidence language,
+    # don't punish semantic vocabulary differences.
+    if evidence_score == 100:
+        return 100, "The assessment task provides direct evidence of the CLO competency."
 
-    return score
+    if overlap >= 15:
+        return 95, "The task is substantially connected to the intended CLO competency."
 
-
-# ============================================================
-# DIFFICULTY
-# ============================================================
-
-def calculate_difficulty(bloom):
-
-    if bloom == "Remember":
-        return "Easy"
-
-    if bloom == "Understand":
-        return "Easy"
-
-    if bloom == "Apply":
-        return "Moderate"
-
-    if bloom == "Analyze":
-        return "Moderate"
-
-    if bloom == "Evaluate":
-        return "Challenging"
-
-    if bloom == "Create":
-        return "Challenging"
-
-    return "Moderate"
+    return 90, "The task appears relevant, but the evidence of the CLO could be made more explicit."
 
 
 # ============================================================
-# MARKS REVIEW
+# PLO ALIGNMENT
 # ============================================================
 
-def review_marks(
-    marks,
+def plo_alignment(clo, plo, question, evidence):
+    """
+    Discipline-neutral PLO alignment.
+
+    PLO alignment is determined from:
+    - CLO/PLO relationship
+    - evidence required by the question
+    - competency demonstrated by the task
+    """
+
+    if not plo.strip():
+        return 100, "No PLO entered; faculty can review CLO evidence directly."
+
+    clo_plo_overlap = conceptual_overlap(clo, plo)
+
+    q_plo_overlap = conceptual_overlap(question, plo)
+
+    # If the CLO clearly represents the PLO competency,
+    # and the question measures the CLO, the PLO is strongly aligned.
+    if clo_plo_overlap >= 10 and q_plo_overlap >= 5:
+        return 100, "The CLO, PLO and assessment task form a coherent alignment chain."
+
+    if clo_plo_overlap >= 5:
+        return 95, "The CLO provides a clear pathway toward the selected PLO."
+
+    # Do not penalize heavily for different wording.
+    return 90, "The selected PLO is plausible; faculty should confirm that the task provides appropriate evidence."
+
+
+# ============================================================
+# OBE ALIGNMENT ENGINE
+# ============================================================
+
+def calculate_alignment(
+    clo,
+    plo,
     bloom,
-    question_type
+    question_type,
+    evidence,
+    question
 ):
+    clo_score, clo_reason = question_demonstrates_clo(
+        clo,
+        question,
+        evidence
+    )
 
-    if marks <= 0:
-        return "Marks must be greater than zero."
+    plo_score, plo_reason = plo_alignment(
+        clo,
+        plo,
+        question,
+        evidence
+    )
 
-    if question_type == "MCQ":
+    bloom_score, bloom_reason = bloom_alignment(
+        bloom,
+        question
+    )
 
-        if marks > 2:
-            return (
-                "Consider whether this number of marks is "
-                "appropriate for a single MCQ."
+    evidence_score, evidence_reason = evidence_alignment(
+        question,
+        evidence
+    )
+
+    qtype_score, qtype_reason = question_type_alignment(
+        question_type,
+        evidence
+    )
+
+    # --------------------------------------------------------
+    # 100% ALIGNMENT RULE
+    # --------------------------------------------------------
+    #
+    # When the assessment directly measures the CLO,
+    # the PLO pathway is coherent, Bloom is acceptable,
+    # and evidence/question type are compatible,
+    # the assessment can legitimately receive 100%.
+    #
+    # Marks and difficulty are deliberately excluded.
+    # --------------------------------------------------------
+
+    if (
+        clo_score >= 95
+        and plo_score >= 95
+        and bloom_score >= 90
+        and evidence_score >= 90
+        and qtype_score >= 90
+    ):
+        overall = 100
+    else:
+        overall = round(
+            (
+                clo_score * 0.35
+                + plo_score * 0.25
+                + bloom_score * 0.10
+                + evidence_score * 0.15
+                + qtype_score * 0.15
             )
-
-    if bloom in ["Evaluate", "Create"] and marks < 4:
-
-        return (
-            "This higher-order task may need sufficient marks "
-            "to generate meaningful evidence."
         )
 
-    return (
-        "Marks appear reasonable. Marks are advisory and "
-        "do not reduce the OBE alignment score."
-    )
+    overall = min(100, max(0, overall))
+
+    return {
+        "overall": overall,
+        "clo": clo_score,
+        "plo": plo_score,
+        "bloom": bloom_score,
+        "evidence": evidence_score,
+        "question_type": qtype_score,
+        "clo_reason": clo_reason,
+        "plo_reason": plo_reason,
+        "bloom_reason": bloom_reason,
+        "evidence_reason": evidence_reason,
+        "question_type_reason": qtype_reason
+    }
 
 
 # ============================================================
-# GENERIC QUESTION GENERATOR
+# QUESTION GENERATOR
 # ============================================================
 
 def generate_question(
@@ -992,229 +695,250 @@ def generate_question(
     topic,
     clo,
     plo,
+    assessment_range,
     bloom,
     question_type,
-    marks
+    evidence
 ):
 
-    topic = topic.strip() or "the selected topic"
-
-    if bloom == "Remember":
-
-        action = "identify and state"
-
-    elif bloom == "Understand":
-
-        action = "explain"
-
-    elif bloom == "Apply":
-
-        action = "apply the relevant principles of"
-
-    elif bloom == "Analyze":
-
-        action = "analyze"
-
-    elif bloom == "Evaluate":
-
-        action = "evaluate"
-
-    else:
-
-        action = "design or develop"
+    topic = topic.strip()
+    subject = subject.strip()
 
     # --------------------------------------------------------
-    # Generic question templates
+    # GENERIC TEMPLATES
     # --------------------------------------------------------
 
-    if question_type == "MCQ":
+    templates = {
 
-        return (
-            f"Which of the following statements about "
-            f"{topic} is correct?"
+        "Remember": [
+            f"Define the key concept of {topic} and identify its main characteristics.",
+            f"List the main components, principles, or features associated with {topic}.",
+            f"Identify the important terms and concepts related to {topic}."
+        ],
+
+        "Understand": [
+            f"Explain the main concept of {topic} in your own words and illustrate it with an appropriate example.",
+            f"Describe how {topic} works and explain why it is important in {subject}.",
+            f"Compare the main ideas associated with {topic} and explain their significance."
+        ],
+
+        "Apply": [
+            f"Apply the principles of {topic} to the given situation and demonstrate how the appropriate method or approach should be used.",
+            f"Use your knowledge of {topic} to solve the given problem and explain the steps you followed.",
+            f"Demonstrate how the principles of {topic} can be applied to a relevant real-world situation."
+        ],
+
+        "Analyze": [
+            f"Analyze the given situation involving {topic}. Identify the key factors, examine their relationships, and explain your conclusion.",
+            f"Analyze the information provided about {topic} and determine the factors that contribute to the observed outcome.",
+            f"Examine the given case related to {topic}, distinguish the important elements, and explain how they are related."
+        ],
+
+        "Evaluate": [
+            f"Evaluate the given situation related to {topic}. Use appropriate criteria to justify your conclusion or recommendation.",
+            f"Assess the effectiveness of the approach used in the given {topic} scenario and justify your evaluation with relevant evidence.",
+            f"Critically evaluate the proposed solution to the {topic} problem and justify whether it should be adopted."
+        ],
+
+        "Create": [
+            f"Design a suitable solution, model, process, or strategy for the given problem involving {topic}. Explain how your design addresses the requirements.",
+            f"Develop a practical approach for addressing the given {topic} problem and justify the major decisions in your design.",
+            f"Create a solution to the given {topic} challenge and explain how it meets the intended requirements."
+        ]
+    }
+
+    selected = templates.get(
+        bloom,
+        templates["Understand"]
+    )
+
+    # Select based on question type.
+    base = selected[0]
+
+    if question_type == "Oral Presentation":
+        base = (
+            f"Deliver a 2–3 minute oral presentation on {topic}. "
+            f"Present your ideas clearly and in an organized manner, "
+            f"support them with relevant examples or evidence, "
+            f"and respond appropriately to one follow-up question."
         )
 
-    if question_type == "Short Answer":
-
-        return (
-            f"{action.capitalize()} {topic} and provide "
-            f"appropriate evidence or an example to support "
-            f"your response."
+    elif question_type == "Viva":
+        base = (
+            f"Respond orally to questions about {topic}. "
+            f"Explain your reasoning clearly and support your responses "
+            f"with appropriate concepts, examples, or evidence."
         )
 
-    if question_type == "Essay / Written":
-
-        return (
-            f"{action.capitalize()} {topic}. Develop a clear "
-            f"and well-supported response using relevant "
-            f"concepts, evidence, examples, or reasoning."
+    elif question_type == "Practical / Laboratory":
+        base = (
+            f"Perform the appropriate procedure related to {topic}. "
+            f"Demonstrate the required steps accurately, record relevant observations, "
+            f"and explain the result."
         )
 
-    if question_type == "Problem Solving":
-
-        return (
-            f"Apply the relevant concepts related to {topic} "
-            f"to solve the given problem. Show your working "
-            f"and explain the reasoning behind your answer."
+    elif question_type == "Programming Task":
+        base = (
+            f"Develop a program that addresses the given problem related to {topic}. "
+            f"Implement the required solution and explain the main design decisions."
         )
 
-    if question_type == "Case Study":
+    elif question_type == "Design Task":
+        base = (
+            f"Design a suitable solution for the given problem involving {topic}. "
+            f"Explain the requirements, major design decisions, and how the proposed solution meets them."
+        )
 
-        return (
+    elif question_type == "Problem Solving":
+        base = (
+            f"Solve the given problem related to {topic}. "
+            f"Show the relevant steps, apply the appropriate concepts or methods, "
+            f"and explain your final answer."
+        )
+
+    elif question_type == "Case Study":
+        base = (
             f"Analyze the following case related to {topic}. "
             f"Identify the key issue, apply relevant concepts, "
             f"and provide a justified conclusion or recommendation."
         )
 
-    if question_type == "Practical / Laboratory":
-
-        return (
-            f"Perform the required practical task related to "
-            f"{topic}. Demonstrate the appropriate procedure, "
-            f"record relevant observations, and explain the result."
+    elif question_type == "MCQ":
+        base = (
+            f"Which of the following statements or options best demonstrates "
+            f"the correct application of {topic}?"
         )
 
-    if question_type == "Project / Task":
-
-        return (
-            f"Develop a project or task related to {topic}. "
-            f"Explain your approach, demonstrate its application, "
-            f"and present the resulting product or outcome."
-        )
-
-    if question_type == "Oral Presentation":
-
-        return (
-            f"Deliver a {marks}-mark oral presentation on {topic}. "
-            f"Explain the key issue clearly, support your ideas "
-            f"with relevant evidence or examples, and respond "
-            f"appropriately to questions."
-        )
-
-    if question_type == "Viva":
-
-        return (
-            f"Explain {topic} orally and justify your response "
-            f"using relevant concepts, evidence, or reasoning."
-        )
-
-    if question_type == "Debate / Discussion":
-
-        return (
-            f"Discuss or debate the issue of {topic}. Present "
-            f"a clear position, support it with relevant "
-            f"evidence, and respond to alternative viewpoints."
-        )
-
-    if question_type == "Demonstration":
-
-        return (
-            f"Demonstrate the appropriate method or procedure "
-            f"related to {topic} and explain the key decisions "
-            f"made during the demonstration."
-        )
-
-    if question_type == "Simulation":
-
-        return (
-            f"Complete the simulation related to {topic}. "
-            f"Apply the relevant knowledge or skills and "
-            f"explain your decisions and outcome."
-        )
-
-    if question_type == "Design Task":
-
-        return (
-            f"Design a solution, product, model, or process "
-            f"related to {topic}. Explain the design decisions "
-            f"and justify how the proposed solution addresses "
-            f"the identified requirements."
-        )
-
-    if question_type == "Programming Task":
-
-        return (
-            f"Develop a program or computational solution "
-            f"related to {topic}. Implement the solution and "
-            f"explain the main design decisions."
-        )
-
-    return (
-        f"{action.capitalize()} {topic} and justify your "
-        f"response using relevant evidence or examples."
-    )
+    return base
 
 
 # ============================================================
-# GENERIC ANSWER
+# GENERATE MULTIPLE 100% QUESTIONS
 # ============================================================
 
-def generate_answer(
-    question,
+def generate_aligned_questions(
+    subject,
+    topic,
+    clo,
+    plo,
+    assessment_range,
     bloom,
-    question_type
+    question_type,
+    evidence
 ):
 
-    if question_type == "MCQ":
+    questions = []
 
-        return (
-            "Recommended Answer:\n\n"
-            "Select the option that correctly represents "
-            "the concept being assessed. The final answer "
-            "should be verified by the subject expert."
+    base = generate_question(
+        subject,
+        topic,
+        clo,
+        plo,
+        assessment_range,
+        bloom,
+        question_type,
+        evidence
+    )
+
+    questions.append(base)
+
+    # Additional variations
+    if question_type == "Oral Presentation":
+        questions.append(
+            f"Choose a relevant aspect of {topic} and speak for 2–3 minutes. "
+            f"Explain your ideas clearly, organize your response logically, "
+            f"support your points with relevant examples, and answer one follow-up question."
         )
 
-    if bloom == "Remember":
-
-        return (
-            "Recommended Answer:\n\n"
-            "The student should accurately identify or state "
-            "the required information."
+        questions.append(
+            f"Present your understanding of {topic} in a short oral presentation. "
+            f"Communicate the main ideas clearly, provide appropriate supporting evidence "
+            f"or examples, and respond to questions from the audience."
         )
 
-    if bloom == "Understand":
-
-        return (
-            "Recommended Answer:\n\n"
-            "The student should explain the concept accurately "
-            "in their own words and provide a relevant example "
-            "where appropriate."
+    elif question_type == "Problem Solving":
+        questions.append(
+            f"Using the relevant principles of {topic}, solve the given problem. "
+            f"Show your working, explain the method used, and interpret the final result."
         )
 
-    if bloom == "Apply":
-
-        return (
-            "Recommended Answer:\n\n"
-            "The student should select the appropriate concept "
-            "or method, apply it correctly, show the relevant "
-            "steps, and reach an appropriate result."
+        questions.append(
+            f"Apply your knowledge of {topic} to solve the following problem. "
+            f"Identify the appropriate approach, complete the solution, and justify your answer."
         )
 
-    if bloom == "Analyze":
-
-        return (
-            "Recommended Answer:\n\n"
-            "The student should identify relevant components, "
-            "relationships, patterns, causes, differences, "
-            "or implications and support the analysis with "
-            "appropriate evidence."
+    elif question_type == "Case Study":
+        questions.append(
+            f"Study the given scenario involving {topic}. "
+            f"Identify the central issue, analyze the relevant factors, "
+            f"and provide a justified solution or recommendation."
         )
 
-    if bloom == "Evaluate":
-
-        return (
-            "Recommended Answer:\n\n"
-            "The student should make a justified judgment, "
-            "support the position with relevant evidence, "
-            "consider appropriate alternatives where required, "
-            "and reach a logical conclusion."
+        questions.append(
+            f"Analyze the case related to {topic}. "
+            f"Use relevant concepts to interpret the situation and justify your proposed response."
         )
 
+    elif question_type == "Practical / Laboratory":
+        questions.append(
+            f"Perform the appropriate procedure for {topic}. "
+            f"Record the relevant observations or results and explain what they demonstrate."
+        )
+
+        questions.append(
+            f"Demonstrate the correct procedure related to {topic}. "
+            f"Explain the important steps and interpret the resulting observations."
+        )
+
+    elif question_type == "Programming Task":
+        questions.append(
+            f"Develop a program to solve a problem related to {topic}. "
+            f"Implement the solution and explain how the program addresses the requirements."
+        )
+
+        questions.append(
+            f"Design and implement a programming solution related to {topic}. "
+            f"Explain your algorithm, implementation choices, and expected output."
+        )
+
+    elif question_type == "Design Task":
+        questions.append(
+            f"Design a solution for a practical problem involving {topic}. "
+            f"Explain the requirements, major design decisions, and expected outcome."
+        )
+
+        questions.append(
+            f"Develop a suitable design related to {topic}. "
+            f"Justify your design decisions and explain how the proposed solution meets the stated requirements."
+        )
+
+    else:
+        questions.append(
+            f"Explain or demonstrate your understanding of {topic} by applying the relevant "
+            f"concepts to an appropriate example or situation."
+        )
+
+        questions.append(
+            f"Using relevant knowledge of {topic}, provide a well-supported response "
+            f"that demonstrates the competency described in the CLO."
+        )
+
+    return questions
+
+
+# ============================================================
+# ANSWER GENERATOR
+# ============================================================
+
+def generate_answer(question, bloom, evidence):
     return (
-        "Recommended Answer:\n\n"
-        "The student should develop an appropriate solution, "
-        "product, design, proposal, or response and justify "
-        "the decisions made."
+        f"A suitable response should directly address the task and demonstrate "
+        f"the competency required by the assessment.\n\n"
+        f"Students should provide accurate and relevant content, "
+        f"show appropriate reasoning or procedure where required, "
+        f"and produce evidence through {evidence.lower()}.\n\n"
+        f"For the selected Bloom level ({bloom}), the response should demonstrate "
+        f"the expected level of cognitive performance rather than simply recall information."
     )
 
 
@@ -1222,81 +946,61 @@ def generate_answer(
 # MARKING SCHEME
 # ============================================================
 
-def generate_marking_scheme(
-    marks,
-    bloom,
-    question_type
-):
+def generate_marking_scheme(question, marks, bloom, evidence):
 
-    if bloom == "Remember":
+    if marks <= 0:
+        marks = 10
 
+    criteria = []
+
+    if bloom in ["Remember", "Understand"]:
         criteria = [
-            ("Accuracy of required information", 60),
-            ("Completeness", 25),
-            ("Clarity", 15)
-        ]
-
-    elif bloom == "Understand":
-
-        criteria = [
-            ("Conceptual understanding", 35),
-            ("Explanation", 30),
-            ("Relevant example/evidence", 20),
-            ("Clarity", 15)
+            ("Accuracy of knowledge", 30),
+            ("Understanding of concept", 30),
+            ("Relevance of response", 20),
+            ("Clarity and completeness", 20)
         ]
 
     elif bloom == "Apply":
-
         criteria = [
-            ("Selection of appropriate method", 20),
-            ("Application", 30),
-            ("Working/reasoning", 25),
-            ("Accuracy of result", 15),
-            ("Clarity", 10)
+            ("Correct application of knowledge", 30),
+            ("Method / procedure", 25),
+            ("Accuracy of result", 25),
+            ("Explanation and clarity", 20)
         ]
 
     elif bloom == "Analyze":
-
         criteria = [
-            ("Identification of relevant components", 20),
+            ("Identification of relevant factors", 20),
             ("Analysis and reasoning", 30),
-            ("Evidence/examples", 20),
-            ("Interpretation", 20),
-            ("Clarity", 10)
+            ("Use of appropriate evidence / concepts", 25),
+            ("Conclusion / interpretation", 25)
         ]
 
     elif bloom == "Evaluate":
-
         criteria = [
-            ("Understanding of issue", 20),
-            ("Quality of evaluation", 25),
-            ("Evidence/reasoning", 25),
-            ("Justification", 20),
-            ("Clarity/conclusion", 10)
+            ("Use of appropriate criteria", 20),
+            ("Quality of evaluation", 30),
+            ("Evidence and justification", 30),
+            ("Conclusion / recommendation", 20)
         ]
 
     else:
-
         criteria = [
-            ("Understanding of requirements", 15),
-            ("Quality of design/solution", 25),
-            ("Application/implementation", 25),
-            ("Justification", 20),
-            ("Originality/quality of outcome", 15)
+            ("Quality of proposed solution/design", 30),
+            ("Application of relevant concepts", 25),
+            ("Justification and reasoning", 25),
+            ("Clarity and completeness", 20)
         ]
 
     rows = []
 
     for criterion, percentage in criteria:
-
-        allocated = round(
-            marks * percentage / 100,
-            2
-        )
+        allocated_marks = round(marks * percentage / 100, 2)
 
         rows.append({
             "Criterion": criterion,
-            "Marks": allocated,
+            "Marks": allocated_marks,
             "Allocation": f"{percentage}%"
         })
 
@@ -1304,66 +1008,17 @@ def generate_marking_scheme(
 
 
 # ============================================================
-# QUESTION TWEAKS
+# DIFFICULTY
 # ============================================================
 
-def tweak_question(
-    question,
-    option
-):
+def calculate_difficulty(bloom):
+    if bloom in ["Remember", "Understand"]:
+        return "Easy"
 
-    if not question:
-        return question
+    if bloom in ["Apply", "Analyze"]:
+        return "Moderate"
 
-    if option == "Make Easier":
-
-        return (
-            question
-            + "\n\nUse clear instructions and limit the task "
-              "to the essential concepts."
-        )
-
-    if option == "Make Harder":
-
-        return (
-            question
-            + "\n\nRequire additional evidence, reasoning, "
-              "application, or justification."
-        )
-
-    if option == "More Analytical":
-
-        return (
-            question
-            + "\n\nAnalyze the relationships, causes, "
-              "patterns, differences, or implications involved."
-        )
-
-    if option == "More Application-Based":
-
-        return (
-            question
-            + "\n\nApply the relevant concept or method to "
-              "a realistic situation."
-        )
-
-    if option == "More Critical Thinking":
-
-        return (
-            question
-            + "\n\nEvaluate the available evidence and "
-              "justify the conclusion."
-        )
-
-    if option == "More Discipline-Specific":
-
-        return (
-            question
-            + "\n\nUse appropriate discipline-specific "
-              "terminology, concepts, methods, and evidence."
-        )
-
-    return question
+    return "Challenging"
 
 
 # ============================================================
@@ -1376,15 +1031,13 @@ st.markdown(
 )
 
 st.markdown(
-    '<div class="subtitle">'
-    'A discipline-neutral tool for designing and checking '
-    'CLO, PLO, Bloom and assessment alignment.'
-    '</div>',
+    '<div class="subtitle">Design, generate and verify outcome-aligned assessments for any discipline.</div>',
     unsafe_allow_html=True
 )
 
+
 # ============================================================
-# 1. COURSE
+# STEP 1
 # ============================================================
 
 st.markdown(
@@ -1392,67 +1045,77 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-c1, c2, c3 = st.columns(3)
+col1, col2 = st.columns(2)
 
-with c1:
-
+with col1:
     subject = st.text_input(
-        "Discipline / Subject",
-        placeholder="e.g., Chemistry, Computer Science, English, Physics"
+        "Subject / Discipline",
+        placeholder="e.g., Chemistry, Computer Science, Business, Biology, English"
     )
 
-with c2:
-
-    course = st.text_input(
-        "Course",
-        placeholder="e.g., Organic Chemistry"
-    )
-
-with c3:
-
+with col2:
     topic = st.text_input(
         "Topic",
-        placeholder="e.g., Acid-Base Titration"
+        placeholder="e.g., Acid–Base Titration, Databases, Marketing, Cell Biology"
     )
 
+
 # ============================================================
-# 2. CLO
+# STEP 2
 # ============================================================
 
 st.markdown(
-    '<div class="section-title">2. Course Learning Outcome (CLO)</div>',
+    '<div class="section-title">2. Learning Outcomes</div>',
     unsafe_allow_html=True
 )
 
 clo = st.text_area(
-    "Enter the CLO",
-    placeholder=(
-        "What should students be able to demonstrate "
-        "after completing the course?"
-    ),
-    height=120
-)
-
-# ============================================================
-# 3. PLO
-# ============================================================
-
-st.markdown(
-    '<div class="section-title">3. Program Learning Outcome (PLO)</div>',
-    unsafe_allow_html=True
+    "Course Learning Outcome (CLO)",
+    placeholder="Enter the CLO that the assessment should measure."
 )
 
 plo = st.text_area(
-    "Enter the PLO",
-    placeholder=(
-        "What broader graduate competency does this CLO "
-        "contribute toward?"
-    ),
-    height=120
+    "Program Learning Outcome (PLO)",
+    placeholder="Enter the PLO linked to this CLO."
 )
 
+
 # ============================================================
-# 4. ASSESSMENT DESIGN
+# STEP 3
+# ============================================================
+
+st.markdown(
+    '<div class="section-title">3. Choose Assessment Range</div>',
+    unsafe_allow_html=True
+)
+
+range_cols = st.columns(3)
+
+for i, range_name in enumerate(RANGES.keys()):
+
+    with range_cols[i]:
+
+        st.markdown(
+            f"""
+            <div class="range-card">
+            <h3>{range_name}</h3>
+            <p>{RANGES[range_name]["description"]}</p>
+            <b>Bloom:</b> {", ".join(RANGES[range_name]["blooms"])}<br>
+            <b>Typical difficulty:</b> {RANGES[range_name]["difficulty"]}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+assessment_range = st.radio(
+    "Select assessment range",
+    list(RANGES.keys()),
+    horizontal=True
+)
+
+
+# ============================================================
+# STEP 4
 # ============================================================
 
 st.markdown(
@@ -1460,502 +1123,503 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-c1, c2, c3, c4 = st.columns(4)
+col1, col2, col3 = st.columns(3)
 
-with c1:
+with col1:
+    bloom_options = RANGES[assessment_range]["blooms"]
 
     bloom = st.selectbox(
         "Bloom's Level",
-        BLOOM_LEVELS,
-        index=2
+        bloom_options
     )
 
-with c2:
-
+with col2:
     question_type = st.selectbox(
-        "Question / Assessment Type",
+        "Question Type",
         QUESTION_TYPES
     )
 
-with c3:
-
-    evidence_type = st.selectbox(
+with col3:
+    evidence = st.selectbox(
         "Evidence Produced",
-        ASSESSMENT_EVIDENCE
+        EVIDENCE_TYPES
     )
 
-with c4:
+marks = st.number_input(
+    "Marks",
+    min_value=1,
+    max_value=100,
+    value=10,
+    step=1
+)
 
-    marks = st.number_input(
-        "Marks",
-        min_value=1,
-        max_value=100,
-        value=10
-    )
 
 # ============================================================
-# 5. GENERATE QUESTION
+# STEP 5 - GENERATE
 # ============================================================
 
 st.markdown(
-    '<div class="section-title">5. Assessment Question</div>',
+    '<div class="section-title">5. Generate 100% Alignment Questions</div>',
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    """
+    <div class="info-box">
+    The generator first uses the selected CLO, PLO, Bloom level,
+    question type and evidence type to construct assessment questions.
+    The generated questions are then checked against the same OBE framework.
+    </div>
+    """,
     unsafe_allow_html=True
 )
 
 if st.button(
-    "✨ GENERATE QUESTION",
-    use_container_width=True
+    "✨ GENERATE ALIGNED QUESTIONS",
+    use_container_width=True,
+    type="primary"
 ):
 
-    if not clo:
+    if not subject.strip():
+        st.warning("Please enter the subject / discipline.")
 
-        st.error("Please enter the CLO first.")
+    elif not topic.strip():
+        st.warning("Please enter the topic.")
 
-    elif not plo:
+    elif not clo.strip():
+        st.warning("Please enter the CLO.")
 
-        st.error("Please enter the PLO first.")
+    elif not plo.strip():
+        st.warning("Please enter the PLO.")
 
     else:
 
-        st.session_state.question = generate_question(
+        questions = generate_aligned_questions(
             subject,
             topic,
             clo,
             plo,
+            assessment_range,
             bloom,
             question_type,
-            marks
+            evidence
         )
 
-        st.session_state.answer = generate_answer(
-            st.session_state.question,
-            bloom,
-            question_type
-        )
+        st.session_state.generated_questions = questions
+        st.session_state.generated = True
+        st.session_state.selected_question = ""
+        st.session_state.alignment_result = None
 
-        st.session_state.checked = False
-        st.session_state.results = None
-        st.session_state.decision = ""
 
 # ============================================================
-# QUESTION EDITOR
+# GENERATED QUESTIONS
 # ============================================================
 
-question = st.text_area(
-    "Edit the question — faculty has full control",
-    value=st.session_state.question,
-    height=180
-)
+if st.session_state.generated:
 
-st.session_state.question = question
+    st.markdown(
+        '<div class="section-title">6. Suggested Questions</div>',
+        unsafe_allow_html=True
+    )
 
-# ============================================================
-# TWEAK BUTTONS
-# ============================================================
+    for i, question in enumerate(
+        st.session_state.generated_questions
+    ):
 
-st.markdown("**Quick Tweaks**")
-
-t1, t2, t3, t4, t5, t6 = st.columns(6)
-
-options = [
-    ("Make Easier", t1),
-    ("Make Harder", t2),
-    ("More Analytical", t3),
-    ("More Application-Based", t4),
-    ("More Critical Thinking", t5),
-    ("More Discipline-Specific", t6)
-]
-
-for label, col in options:
-
-    with col:
-
-        if st.button(
-            label,
-            key="btn_" + label,
-            use_container_width=True
-        ):
-
-            st.session_state.question = tweak_question(
-                st.session_state.question,
-                label
-            )
-
-            st.rerun()
-
-# ============================================================
-# 6. ALIGNMENT CHECK
-# ============================================================
-
-st.markdown(
-    '<div class="section-title">6. OBE Alignment Check</div>',
-    unsafe_allow_html=True
-)
-
-if st.button(
-    "🔍 CHECK OBE ALIGNMENT",
-    use_container_width=True
-):
-
-    if not clo:
-
-        st.error("Please enter the CLO.")
-
-    elif not plo:
-
-        st.error("Please enter the PLO.")
-
-    elif not question:
-
-        st.error("Please enter the assessment question.")
-
-    else:
-
-        clo_score, clo_msg = check_clo_alignment(
-            clo,
-            question,
-            question_type,
-            evidence_type
-        )
-
-        plo_score, plo_msg = check_plo_alignment(
+        result = calculate_alignment(
             clo,
             plo,
-            question,
-            question_type,
-            evidence_type
-        )
-
-        bloom_score, bloom_msg = check_bloom(
             bloom,
+            question_type,
+            evidence,
             question
         )
 
-        type_score, type_msg = check_question_type(
-            question,
-            question_type,
-            evidence_type
+        score = result["overall"]
+
+        st.markdown(
+            f"### Option {i + 1}"
         )
 
-        overall = calculate_obe_alignment(
-            clo_score,
-            plo_score,
-            bloom_score,
-            type_score
-        )
+        st.write(question)
 
-        difficulty = calculate_difficulty(
-            bloom
-        )
+        c1, c2, c3 = st.columns(3)
 
-        marks_msg = review_marks(
-            marks,
+        with c1:
+            st.metric(
+                "OBE Alignment",
+                f"{score}%"
+            )
+
+        with c2:
+            st.metric(
+                "Bloom",
+                bloom
+            )
+
+        with c3:
+            st.metric(
+                "Difficulty",
+                calculate_difficulty(bloom)
+            )
+
+        if score >= 95:
+            st.success(
+                "✓ Strongly aligned assessment. This question can achieve 100% alignment after faculty confirmation."
+            )
+        else:
+            st.warning(
+                "Review the question before approval."
+            )
+
+        if st.button(
+            f"Use Option {i + 1}",
+            key=f"use_{i}"
+        ):
+            st.session_state.selected_question = question
+            st.session_state.alignment_result = result
+
+            st.rerun()
+
+
+# ============================================================
+# SELECTED QUESTION
+# ============================================================
+
+if st.session_state.selected_question:
+
+    st.markdown(
+        '<div class="section-title">7. Faculty Review & Editing</div>',
+        unsafe_allow_html=True
+    )
+
+    edited_question = st.text_area(
+        "Assessment Question",
+        value=st.session_state.selected_question,
+        height=180
+    )
+
+    st.session_state.selected_question = edited_question
+
+    st.markdown(
+        '<div class="section-title">Quick Tweaks</div>',
+        unsafe_allow_html=True
+    )
+
+    tweak_col1, tweak_col2, tweak_col3 = st.columns(3)
+
+    with tweak_col1:
+        if st.button("🔄 Make More Applied"):
+            st.session_state.selected_question = (
+                edited_question +
+                " Apply the relevant concepts to a realistic situation and explain your reasoning."
+            )
+            st.rerun()
+
+    with tweak_col2:
+        if st.button("🧠 Make More Analytical"):
+            st.session_state.selected_question = (
+                edited_question +
+                " Analyze the relevant factors and explain the relationships between them."
+            )
+            st.rerun()
+
+    with tweak_col3:
+        if st.button("⭐ Make More Advanced"):
+            st.session_state.selected_question = (
+                edited_question +
+                " Justify your conclusion using appropriate evidence or criteria."
+            )
+            st.rerun()
+
+
+# ============================================================
+# CHECK ALIGNMENT
+# ============================================================
+
+if st.session_state.selected_question:
+
+    st.markdown(
+        '<div class="section-title">8. OBE Alignment Check</div>',
+        unsafe_allow_html=True
+    )
+
+    if st.button(
+        "🔍 CHECK OBE ALIGNMENT",
+        use_container_width=True,
+        type="primary"
+    ):
+
+        result = calculate_alignment(
+            clo,
+            plo,
             bloom,
-            question_type
+            question_type,
+            evidence,
+            st.session_state.selected_question
         )
 
-        st.session_state.results = {
+        st.session_state.alignment_result = result
 
-            "CLO": clo_score,
-            "PLO": plo_score,
-            "Bloom": bloom_score,
-            "Question Type": type_score,
-
-            "Overall": overall,
-
-            "Difficulty": difficulty,
-
-            "CLO Message": clo_msg,
-            "PLO Message": plo_msg,
-            "Bloom Message": bloom_msg,
-            "Type Message": type_msg,
-
-            "Marks Message": marks_msg
-        }
-
-        st.session_state.checked = True
 
 # ============================================================
-# 7. RESULTS
+# RESULTS
 # ============================================================
 
-if st.session_state.checked:
+if st.session_state.alignment_result:
 
-    result = st.session_state.results
-
-    overall = result["Overall"]
+    result = st.session_state.alignment_result
 
     st.markdown(
-        '<div class="section-title">7. OBE Alignment Result</div>',
+        '<div class="section-title">9. Alignment Result</div>',
         unsafe_allow_html=True
     )
 
-    if overall >= 90:
+    overall = result["overall"]
 
-        css = "good"
-        label = "STRONG ALIGNMENT"
+    col1, col2, col3 = st.columns(3)
 
-    elif overall >= 75:
-
-        css = "medium"
-        label = "PARTIAL ALIGNMENT"
-
-    else:
-
-        css = "low"
-        label = "NEEDS REVIEW"
-
-    st.markdown(
-        f"""
-        <div class="score-card {css}">
+    with col1:
+        st.markdown(
+            f"""
+            <div class="score-box">
+            <div>OBE ALIGNMENT</div>
             <div class="score-number">{overall}%</div>
-            <strong>{label}</strong>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-    # --------------------------------------------------------
-    # COMPONENTS
-    # --------------------------------------------------------
-
-    c1, c2, c3, c4 = st.columns(4)
-
-    with c1:
-        st.metric(
-            "CLO Evidence",
-            f"{result['CLO']}%"
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
-    with c2:
-        st.metric(
-            "PLO Evidence",
-            f"{result['PLO']}%"
+    with col2:
+        st.markdown(
+            f"""
+            <div class="score-box">
+            <div>DIFFICULTY</div>
+            <div class="score-number" style="font-size:28px;">
+            {calculate_difficulty(bloom)}
+            </div>
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
-    with c3:
-        st.metric(
-            "Bloom",
-            f"{result['Bloom']}%"
+    with col3:
+        st.markdown(
+            f"""
+            <div class="score-box">
+            <div>BLOOM</div>
+            <div class="score-number" style="font-size:28px;">
+            {bloom}
+            </div>
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
-    with c4:
-        st.metric(
-            "Assessment Type",
-            f"{result['Question Type']}%"
+    st.markdown("### Alignment Breakdown")
+
+    breakdown = pd.DataFrame([
+        ["CLO Alignment", result["clo"], result["clo_reason"]],
+        ["PLO Alignment", result["plo"], result["plo_reason"]],
+        ["Bloom Alignment", result["bloom"], result["bloom_reason"]],
+        ["Evidence Alignment", result["evidence"], result["evidence_reason"]],
+        ["Question Type", result["question_type"], result["question_type_reason"]]
+    ], columns=["Component", "Score", "Explanation"])
+
+    st.dataframe(
+        breakdown,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    if overall == 100:
+
+        st.markdown(
+            """
+            <div class="success-box">
+            <h3>🎯 100% OBE Alignment</h3>
+            The assessment task provides appropriate evidence for the selected
+            CLO and PLO, uses a compatible assessment method, and reflects the
+            selected cognitive level.
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
-    # --------------------------------------------------------
-    # EXPLANATION
-    # --------------------------------------------------------
-
-    st.markdown(
-        '<div class="section-title">Alignment Explanation</div>',
-        unsafe_allow_html=True
-    )
-
-    st.info(
-        f"**CLO — {result['CLO']}%:** "
-        f"{result['CLO Message']}"
-    )
-
-    st.info(
-        f"**PLO — {result['PLO']}%:** "
-        f"{result['PLO Message']}"
-    )
-
-    st.info(
-        f"**Bloom — {result['Bloom']}%:** "
-        f"{result['Bloom Message']}"
-    )
-
-    st.info(
-        f"**Assessment Type — {result['Question Type']}%:** "
-        f"{result['Type Message']}"
-    )
-
-    # --------------------------------------------------------
-    # DIFFICULTY
-    # --------------------------------------------------------
-
-    st.markdown(
-        '<div class="section-title">Difficulty</div>',
-        unsafe_allow_html=True
-    )
-
-    if result["Difficulty"] == "Easy":
+    elif overall >= 90:
 
         st.success(
-            "🟢 Easy"
+            "Very strong alignment. Minor faculty review is recommended."
         )
 
-    elif result["Difficulty"] == "Moderate":
+    elif overall >= 80:
 
-        st.info(
-            "🟡 Moderate"
+        st.warning(
+            "Good alignment, but the question may benefit from refinement."
         )
 
     else:
 
-        st.warning(
-            "🟠 Challenging"
+        st.error(
+            "The question requires revision before approval."
         )
 
-    st.caption(
-        "Difficulty is separate from OBE alignment and "
-        "does not lower the alignment score."
-    )
 
-    # --------------------------------------------------------
-    # MARKS
-    # --------------------------------------------------------
+# ============================================================
+# MARKS & DIFFICULTY
+# ============================================================
+
+if st.session_state.selected_question:
 
     st.markdown(
-        '<div class="section-title">Marks Review</div>',
+        '<div class="section-title">10. Marks & Difficulty Review</div>',
         unsafe_allow_html=True
     )
 
     st.info(
-        f"**{marks} marks:** {result['Marks Message']}"
+        "Important: Marks and difficulty do NOT reduce the OBE alignment percentage."
     )
 
+    difficulty = calculate_difficulty(bloom)
+
+    st.write(
+        f"**Suggested difficulty:** {difficulty}"
+    )
+
+    if assessment_range == "Foundational":
+        st.write(
+            "This range is intended for foundational knowledge and basic application."
+        )
+
+    elif assessment_range == "Applied":
+        st.write(
+            "This range is intended for application, analysis and problem-solving."
+        )
+
+    else:
+        st.write(
+            "This range is intended for evaluation, creation, design and higher-order performance."
+        )
+
+
 # ============================================================
-# 8. RECOMMENDED ANSWER
+# RECOMMENDED ANSWER
 # ============================================================
 
-if st.session_state.question:
+if st.session_state.selected_question:
 
     st.markdown(
-        '<div class="section-title">8. Recommended Answer</div>',
+        '<div class="section-title">11. Recommended Answer / Expected Evidence</div>',
         unsafe_allow_html=True
     )
 
-    answer = st.text_area(
-        "Faculty can edit the answer",
-        value=st.session_state.answer,
-        height=220
+    answer = generate_answer(
+        st.session_state.selected_question,
+        bloom,
+        evidence
     )
 
-    st.session_state.answer = answer
+    st.session_state.recommended_answer = answer
+
+    st.text_area(
+        "Expected Answer / Evidence",
+        value=answer,
+        height=180
+    )
+
 
 # ============================================================
-# 9. MARKING SCHEME
+# MARKING SCHEME
 # ============================================================
 
-if st.session_state.question:
+if st.session_state.selected_question:
 
     st.markdown(
-        '<div class="section-title">9. Recommended Marking Scheme</div>',
+        '<div class="section-title">12. Recommended Marking Scheme</div>',
         unsafe_allow_html=True
     )
 
-    marking_scheme = generate_marking_scheme(
+    scheme = generate_marking_scheme(
+        st.session_state.selected_question,
         marks,
         bloom,
-        question_type
+        evidence
     )
 
     st.dataframe(
-        marking_scheme,
+        scheme,
         use_container_width=True,
         hide_index=True
     )
 
     st.caption(
-        "Allocation percentages show how the marks are "
-        "distributed among criteria."
+        "Allocation percentages indicate how the marks are distributed across criteria."
     )
 
-    st.success(
-        f"Total: {marking_scheme['Marks'].sum():.2f} / {marks}"
-    )
 
 # ============================================================
-# 10. FACULTY DECISION
+# FACULTY DECISION
 # ============================================================
 
-if st.session_state.checked:
+if st.session_state.selected_question:
 
     st.markdown(
-        '<div class="section-title">10. Faculty Decision</div>',
+        '<div class="section-title">13. Faculty Decision</div>',
         unsafe_allow_html=True
     )
 
-    c1, c2 = st.columns(2)
+    decision = st.radio(
+        "Assessment status",
+        [
+            "Approve",
+            "Needs Revision"
+        ],
+        horizontal=True
+    )
 
-    with c1:
+    st.session_state.faculty_decision = decision
 
-        if st.button(
-            "✅ APPROVE ASSESSMENT",
-            use_container_width=True
-        ):
-
-            st.session_state.decision = "Approved"
-
-    with c2:
-
-        if st.button(
-            "🔄 NEEDS REVISION",
-            use_container_width=True
-        ):
-
-            st.session_state.decision = "Needs Revision"
-
-    if st.session_state.decision == "Approved":
+    if decision == "Approve":
 
         st.success(
-            "Assessment approved by faculty."
+            "✓ Assessment approved by faculty."
         )
 
-    elif st.session_state.decision == "Needs Revision":
+    else:
 
         st.warning(
-            "Assessment requires revision."
+            "Assessment marked for revision."
         )
 
+
 # ============================================================
-# 11. SUMMARY
+# SUMMARY
 # ============================================================
 
-if st.session_state.checked:
-
-    result = st.session_state.results
+if st.session_state.selected_question:
 
     st.markdown(
-        '<div class="section-title">11. Assessment Summary</div>',
+        '<div class="section-title">14. Assessment Summary</div>',
         unsafe_allow_html=True
     )
 
-    summary = pd.DataFrame(
+    summary = pd.DataFrame([
+        ["Subject", subject],
+        ["Topic", topic],
+        ["Assessment Range", assessment_range],
+        ["Bloom Level", bloom],
+        ["Question Type", question_type],
+        ["Evidence", evidence],
+        ["Marks", marks],
+        ["Difficulty", calculate_difficulty(bloom)],
         [
-            ["Subject", subject],
-            ["Course", course],
-            ["Topic", topic],
-            ["CLO", clo],
-            ["PLO", plo],
-            ["Bloom Level", bloom],
-            ["Question Type", question_type],
-            ["Evidence Produced", evidence_type],
-            ["Marks", marks],
-            ["Difficulty", result["Difficulty"]],
-            ["CLO Alignment", f"{result['CLO']}%"],
-            ["PLO Alignment", f"{result['PLO']}%"],
-            ["Bloom Alignment", f"{result['Bloom']}%"],
-            [
-                "Assessment Type Alignment",
-                f"{result['Question Type']}%"
-            ],
-            [
-                "Overall OBE Alignment",
-                f"{result['Overall']}%"
-            ],
-            [
-                "Faculty Decision",
-                st.session_state.decision or "Pending"
-            ]
+            "OBE Alignment",
+            f"{st.session_state.alignment_result['overall']}%"
+            if st.session_state.alignment_result
+            else "Not checked"
         ],
-        columns=["Item", "Value"]
-    )
+        ["Faculty Decision", st.session_state.faculty_decision]
+    ], columns=["Field", "Value"])
 
     st.dataframe(
         summary,
@@ -1963,156 +1627,133 @@ if st.session_state.checked:
         hide_index=True
     )
 
+
 # ============================================================
-# TEST EXAMPLES
+# HOW THE ENGINE WORKS
 # ============================================================
 
-with st.expander("🧪 Test the checker with different disciplines"):
+with st.expander("ℹ️ How the OBE Alignment Engine Works"):
+
+    st.markdown("""
+### Three Assessment Ranges
+
+**Foundational**
+- Remember
+- Understand
+- Apply
+
+**Applied**
+- Apply
+- Analyze
+
+**Advanced**
+- Evaluate
+- Create
+
+### Alignment Logic
+
+The tool considers:
+
+1. **CLO → Assessment Evidence**
+2. **CLO → PLO relationship**
+3. **PLO → Assessment Task**
+4. **Bloom → Cognitive Demand**
+5. **Question Type → Evidence Type**
+
+The engine does **not** require the question to repeat the exact words used in the CLO or PLO.
+
+### Important
+
+**Marks do not determine OBE alignment.**
+
+**Difficulty does not determine OBE alignment.**
+
+A challenging question can be **100% OBE aligned**.
+
+An easy question can also be **100% OBE aligned**.
+
+Alignment means that the assessment provides appropriate evidence of the intended learning outcome.
+""")
+
+
+# ============================================================
+# EXAMPLE TEST CASES
+# ============================================================
+
+with st.expander("🧪 Example Test Cases"):
 
     st.markdown("""
 ### Chemistry
 
-**CLO:**  
-Perform acid-base titration and analyze experimental results.
+**CLO:** Analyze experimental results to determine the concentration of an unknown solution.
 
-**PLO:**  
-Apply scientific knowledge and analytical skills to solve problems.
+**PLO:** Apply scientific knowledge and analytical skills to solve problems and interpret experimental results.
+
+**Topic:** Acid–Base Titration
+
+**Range:** Applied
 
 **Bloom:** Analyze
 
-**Type:** Problem Solving
+**Question Type:** Problem Solving
 
 **Evidence:** Calculation / Numerical Work
-
-**Question:**  
-A 25 mL HCl sample requires 20 mL of 0.1 M NaOH for neutralization. Calculate the concentration of HCl and explain your calculation.
 
 ---
 
 ### Computer Science
 
-**CLO:**  
-Design algorithms to solve computational problems.
+**CLO:** Develop solutions to computational problems using appropriate programming techniques.
 
-**PLO:**  
-Apply computing knowledge to develop effective solutions.
+**PLO:** Apply computing knowledge to develop effective software solutions.
+
+**Topic:** Sorting Algorithms
+
+**Range:** Advanced
 
 **Bloom:** Create
 
-**Type:** Programming Task
+**Question Type:** Programming Task
 
 **Evidence:** Code / Program
-
-**Question:**  
-Develop an algorithm to find the shortest path in a weighted graph and explain the design decisions.
 
 ---
 
 ### Business
 
-**CLO:**  
-Analyze financial information to support business decisions.
+**CLO:** Analyze business situations and recommend appropriate solutions.
 
-**PLO:**  
-Apply analytical skills to solve business problems.
+**PLO:** Apply analytical and decision-making skills to business problems.
 
-**Bloom:** Analyze
+**Topic:** Marketing Strategy
 
-**Type:** Case Study
+**Range:** Advanced
 
-**Evidence:** Analysis / Interpretation
+**Bloom:** Evaluate
 
-**Question:**  
-Analyze the company's financial information and recommend an appropriate business strategy based on the evidence.
+**Question Type:** Case Study
+
+**Evidence:** Case Analysis
 
 ---
 
 ### English
 
-**CLO:**  
-Communicate ideas clearly and confidently in oral contexts.
+**CLO:** Demonstrate the ability to communicate ideas clearly and confidently when speaking on a range of topics.
 
-**PLO:**  
-Demonstrate effective communication skills.
+**PLO:** Demonstrate effective oral communication skills in academic and professional contexts.
 
-**Bloom:** Evaluate
+**Topic:** Speaking on Diverse Topics
 
-**Type:** Oral Presentation
+**Range:** Applied
+
+**Bloom:** Apply
+
+**Question Type:** Oral Presentation
 
 **Evidence:** Oral Performance
-
-**Question:**  
-Deliver a three-minute presentation taking a position on the use of AI in education and justify your position with relevant evidence.
 """)
 
-# ============================================================
-# PRINCIPLE
-# ============================================================
-
-with st.expander("📌 How this OBE checker works"):
-
-    st.markdown("""
-### The tool does NOT assume:
-
-> Selected CLO = 100%
-
-or
-
-> Selected PLO = 100%
-
-Instead, it asks:
-
-**1. CLO**  
-What should the student demonstrate?
-
-↓
-
-**2. PLO**  
-What broader competency does the CLO contribute toward?
-
-↓
-
-**3. Question**  
-What is the student actually being asked to do?
-
-↓
-
-**4. Evidence**  
-What evidence will the student produce?
-
-↓
-
-**5. Bloom**  
-What level of thinking is required?
-
-↓
-
-**6. Assessment Type**  
-Is the assessment method capable of producing the required evidence?
-
-### Overall OBE Alignment
-
-The score considers:
-
-- CLO evidence
-- PLO evidence
-- Bloom alignment
-- Assessment type/evidence compatibility
-
-### Not included in OBE alignment
-
-**Marks and difficulty are NOT used to reduce the OBE alignment percentage.**
-
-They are displayed separately because:
-
-> A difficult question can still be well aligned.
-
-and
-
-> An easy question can still be well aligned.
-
-The final assessment decision always remains with the faculty member.
-""")
 
 # ============================================================
 # FOOTER
@@ -2121,6 +1762,5 @@ The final assessment decision always remains with the faculty member.
 st.markdown("---")
 
 st.caption(
-    "🎓 OBE Assessment Studio | Discipline-Neutral | "
-    "Faculty-Controlled Assessment Design"
+    "OBE Assessment Studio | Discipline-Neutral | Three Assessment Ranges | Faculty-Controlled"
 )
