@@ -1,34 +1,13 @@
-import io
-import re
-import pandas as pd
 import streamlit as st
+import pandas as pd
+import re
+import io
+import os
+import math
+from collections import Counter
 
 # ============================================================
-# OPTIONAL LIBRARIES
-# ============================================================
-
-try:
-    import fitz
-    PDF_AVAILABLE = True
-except Exception:
-    PDF_AVAILABLE = False
-
-try:
-    from docx import Document
-    DOCX_AVAILABLE = True
-except Exception:
-    DOCX_AVAILABLE = False
-
-try:
-    from PIL import Image
-    import pytesseract
-    OCR_AVAILABLE = True
-except Exception:
-    OCR_AVAILABLE = False
-
-
-# ============================================================
-# PAGE
+# PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
@@ -37,91 +16,97 @@ st.set_page_config(
     layout="wide"
 )
 
-
 # ============================================================
-# BLOOM TAXONOMY
+# CONSTANTS
 # ============================================================
 
-BLOOM_ORDER = {
-    "Remember": 1,
-    "Understand": 2,
-    "Apply": 3,
-    "Analyze": 4,
-    "Evaluate": 5,
-    "Create": 6
+BLOOM_LEVELS = {
+    "Remember": {
+        "verbs": [
+            "define", "list", "name", "identify", "state", "recall",
+            "recognize", "match", "select", "label", "mention"
+        ],
+        "rank": 1
+    },
+    "Understand": {
+        "verbs": [
+            "describe", "explain", "summarize", "interpret", "classify",
+            "discuss", "illustrate", "paraphrase", "compare", "differentiate"
+        ],
+        "rank": 2
+    },
+    "Apply": {
+        "verbs": [
+            "apply", "use", "calculate", "solve", "demonstrate",
+            "implement", "execute", "compute", "operate", "practice"
+        ],
+        "rank": 3
+    },
+    "Analyze": {
+        "verbs": [
+            "analyze", "analyse", "examine", "investigate", "differentiate",
+            "deconstruct", "categorize", "compare", "contrast", "infer",
+            "break down", "identify relationships"
+        ],
+        "rank": 4
+    },
+    "Evaluate": {
+        "verbs": [
+            "evaluate", "assess", "judge", "justify", "critique",
+            "defend", "appraise", "validate", "recommend", "argue"
+        ],
+        "rank": 5
+    },
+    "Create": {
+        "verbs": [
+            "create", "design", "develop", "construct", "formulate",
+            "produce", "propose", "generate", "plan", "develop"
+        ],
+        "rank": 6
+    }
 }
 
-BLOOM_VERBS = {
-    "Remember": [
-        "define", "identify", "list", "name", "state",
-        "recall", "recognize", "label", "select", "match"
-    ],
-    "Understand": [
-        "explain", "describe", "summarize", "interpret",
-        "classify", "discuss", "illustrate", "clarify"
-    ],
-    "Apply": [
-        "apply", "calculate", "solve", "use", "demonstrate",
-        "implement", "execute", "compute", "determine"
-    ],
-    "Analyze": [
-        "analyze", "analyse", "compare", "contrast",
-        "differentiate", "examine", "distinguish",
-        "categorize", "deconstruct"
-    ],
-    "Evaluate": [
-        "evaluate", "justify", "assess", "critique",
-        "judge", "defend", "validate", "appraise"
-    ],
-    "Create": [
-        "design", "create", "develop", "construct",
-        "formulate", "propose", "produce", "plan", "devise"
-    ]
-}
-
-ALL_BLOOM_VERBS = set()
-
-for verbs in BLOOM_VERBS.values():
-    ALL_BLOOM_VERBS.update(verbs)
-
-
-# ============================================================
-# WORD LISTS
-# ============================================================
-
-STOP_WORDS = {
-    "a", "an", "the", "and", "or", "but", "if", "then",
-    "of", "to", "in", "on", "for", "from", "with", "by",
-    "as", "at", "is", "are", "was", "were", "be", "been",
-    "being", "this", "that", "these", "those", "it", "its",
-    "into", "about", "than", "through", "during", "after",
-    "before", "between", "within", "using", "used", "use",
-    "will", "would", "could", "should", "can", "may",
-    "might", "your", "their", "our", "you", "they", "we",
-    "he", "she", "which", "what", "when", "where", "why",
-    "how", "given", "following", "following"
+STOPWORDS = {
+    "the", "a", "an", "and", "or", "of", "to", "in", "on", "for",
+    "with", "by", "from", "as", "at", "is", "are", "was", "were",
+    "be", "been", "being", "that", "this", "these", "those", "it",
+    "its", "their", "they", "them", "he", "she", "his", "her",
+    "you", "your", "we", "our", "which", "who", "whom", "what",
+    "when", "where", "why", "how", "into", "through", "about",
+    "than", "then", "also", "such", "can", "could", "should",
+    "would", "may", "might", "will", "shall", "do", "does", "did",
+    "have", "has", "had", "not", "no", "yes", "each", "every",
+    "any", "all", "both", "more", "most", "some", "one", "two"
 }
 
 GENERIC_OUTCOME_WORDS = {
-    "student", "students", "learner", "learners",
-    "ability", "abilities", "knowledge", "understanding",
-    "understand", "skill", "skills", "competence",
-    "competencies", "demonstrate", "demonstrates",
-    "develop", "development", "appropriate", "effectively",
-    "discipline", "field", "area", "course", "courses",
-    "program", "programs", "learning", "outcome", "outcomes",
-    "capable", "capability", "proficiency", "proficient"
+    "apply", "use", "understand", "demonstrate", "knowledge",
+    "ability", "skills", "skill", "knowledge", "discipline",
+    "field", "concepts", "concept", "principles", "principle",
+    "information", "appropriate", "relevant", "effectively",
+    "effectively", "problems", "problem", "solutions", "solution",
+    "communicate", "communication", "work", "team", "professional",
+    "practice", "practice", "ethical", "ethically"
 }
 
-OBE_WORDS = {
-    "clo", "clos", "plo", "plos", "bloom", "taxonomy",
-    "attainment", "alignment", "aligned", "assessment",
-    "assessments", "learning", "outcome", "outcomes"
+GENERIC_QUESTION_PHRASES = {
+    "what is",
+    "what are",
+    "define",
+    "write a note on",
+    "write notes on",
+    "discuss",
+    "explain",
+    "describe",
+    "give an account of",
+    "what do you know about",
+    "tell me about",
+    "comment on"
 }
 
 
 # ============================================================
-# TEXT FUNCTIONS
+# TEXT UTILITIES
 # ============================================================
 
 def clean_text(text):
@@ -129,8 +114,7 @@ def clean_text(text):
         return ""
 
     text = str(text)
-
-    text = text.replace("\x00", " ")
+    text = text.replace("\u00a0", " ")
     text = text.replace("\u2013", "-")
     text = text.replace("\u2014", "-")
     text = text.replace("\u2018", "'")
@@ -139,7 +123,6 @@ def clean_text(text):
     text = text.replace("\u201d", '"')
 
     text = re.sub(r"\s+", " ", text)
-
     return text.strip()
 
 
@@ -150,112 +133,84 @@ def normalize(text):
     return text.strip()
 
 
-def stem(word):
-    word = word.lower().strip()
-
-    if len(word) <= 4:
-        return word
-
-    suffixes = [
-        "ingly",
-        "edly",
-        "ation",
-        "ments",
-        "ment",
-        "ness",
-        "ities",
-        "ity",
-        "ingly",
-        "ing",
-        "ers",
-        "ies",
-        "es",
-        "ed",
-        "s"
-    ]
-
-    for suffix in suffixes:
-        if word.endswith(suffix):
-            base = word[:-len(suffix)]
-
-            if len(base) >= 4:
-                return base
-
-    return word
-
-
 def tokens(text):
     words = normalize(text).split()
-
-    result = []
-
-    for word in words:
-        if word in STOP_WORDS:
-            continue
-
-        if word in OBE_WORDS:
-            continue
-
-        if len(word) < 3:
-            continue
-
-        result.append(stem(word))
-
-    return result
+    return [
+        w for w in words
+        if len(w) > 2 and w not in STOPWORDS
+    ]
 
 
 def token_set(text):
     return set(tokens(text))
 
 
-def outcome_tokens(text):
-    words = normalize(text).split()
+def stem(word):
+    word = word.lower().strip()
 
-    result = []
+    suffixes = [
+        "ization", "isation", "ations", "ation",
+        "ments", "ment", "ingly", "edly",
+        "ing", "ers", "ies", "es", "ed", "ly", "s"
+    ]
 
-    for word in words:
+    for suffix in suffixes:
+        if len(word) > len(suffix) + 3 and word.endswith(suffix):
+            return word[:-len(suffix)]
 
-        if word in STOP_WORDS:
-            continue
-
-        if word in OBE_WORDS:
-            continue
-
-        if word in GENERIC_OUTCOME_WORDS:
-            continue
-
-        if word in ALL_BLOOM_VERBS:
-            continue
-
-        if len(word) < 3:
-            continue
-
-        result.append(stem(word))
-
-    return result
+    return word
 
 
-def unique_list(items):
-    result = []
-    seen = set()
+def stemmed_tokens(text):
+    return {stem(w) for w in tokens(text)}
 
-    for item in items:
-        if item not in seen:
-            seen.add(item)
-            result.append(item)
 
-    return result
+def overlap_score(text_a, text_b):
+    a = stemmed_tokens(text_a)
+    b = stemmed_tokens(text_b)
+
+    if not a or not b:
+        return 0.0
+
+    intersection = len(a & b)
+
+    precision = intersection / len(a)
+    recall = intersection / len(b)
+
+    if precision + recall == 0:
+        return 0.0
+
+    f1 = 2 * precision * recall / (precision + recall)
+
+    return f1 * 100
+
+
+def meaningful_outcome_tokens(text):
+    words = stemmed_tokens(text)
+
+    return {
+        w for w in words
+        if w not in {
+            stem(x) for x in GENERIC_OUTCOME_WORDS
+        }
+    }
 
 
 # ============================================================
-# PUNCTUATION
+# QUESTION CLEANING
 # ============================================================
 
 def finalize_question(text):
+    """
+    Ensures the final question has exactly one question mark.
+    Removes . ? / .? / !! etc.
+    """
+
     text = clean_text(text)
 
-    # Remove ALL terminal punctuation combinations.
     text = re.sub(r"[.!?]+$", "", text).strip()
+
+    text = re.sub(r"\s+\?", "?", text)
 
     if not text:
         return ""
@@ -264,729 +219,279 @@ def finalize_question(text):
 
 
 # ============================================================
-# FILE READING
-# ============================================================
-
-def read_pdf(file):
-    if not PDF_AVAILABLE:
-        raise RuntimeError(
-            "PyMuPDF is not installed. Add pymupdf to requirements."
-        )
-
-    data = file.read()
-
-    document = fitz.open(
-        stream=data,
-        filetype="pdf"
-    )
-
-    pages = []
-
-    for page in document:
-        pages.append(page.get_text("text"))
-
-    text = "\n".join(pages).strip()
-
-    if len(text) < 100 and OCR_AVAILABLE:
-
-        ocr_pages = []
-
-        document = fitz.open(
-            stream=data,
-            filetype="pdf"
-        )
-
-        for page in document:
-
-            pix = page.get_pixmap(
-                matrix=fitz.Matrix(2, 2)
-            )
-
-            image = Image.frombytes(
-                "RGB",
-                [pix.width, pix.height],
-                pix.samples
-            )
-
-            try:
-                ocr_pages.append(
-                    pytesseract.image_to_string(image)
-                )
-            except Exception:
-                pass
-
-        text = "\n".join(ocr_pages).strip()
-
-    return text
-
-
-def read_docx(file):
-    if not DOCX_AVAILABLE:
-        raise RuntimeError(
-            "python-docx is not installed."
-        )
-
-    document = Document(file)
-
-    paragraphs = []
-
-    for paragraph in document.paragraphs:
-        value = clean_text(paragraph.text)
-
-        if value:
-            paragraphs.append(value)
-
-    return "\n".join(paragraphs)
-
-
-def read_excel(file):
-    data = file.read()
-
-    excel = pd.ExcelFile(
-        io.BytesIO(data)
-    )
-
-    output = []
-
-    for sheet in excel.sheet_names:
-
-        df = pd.read_excel(
-            io.BytesIO(data),
-            sheet_name=sheet
-        )
-
-        output.append(
-            f"Sheet: {sheet}\n"
-            f"{df.fillna('').to_string(index=False)}"
-        )
-
-    return "\n\n".join(output)
-
-
-def read_csv(file):
-    data = file.read()
-
-    df = pd.read_csv(
-        io.BytesIO(data),
-        encoding_errors="ignore"
-    )
-
-    return df.fillna("").to_string(
-        index=False
-    )
-
-
-def read_txt(file):
-    data = file.read()
-
-    try:
-        return data.decode("utf-8")
-    except Exception:
-        return data.decode(
-            "latin-1",
-            errors="ignore"
-        )
-
-
-def read_uploaded_file(file):
-
-    name = file.name.lower()
-
-    if name.endswith(".pdf"):
-        return read_pdf(file)
-
-    if name.endswith(".docx"):
-        return read_docx(file)
-
-    if name.endswith(".xlsx") or name.endswith(".xls"):
-        return read_excel(file)
-
-    if name.endswith(".csv"):
-        return read_csv(file)
-
-    if name.endswith(".txt"):
-        return read_txt(file)
-
-    raise ValueError(
-        "Unsupported file format."
-    )
-
-
-# ============================================================
-# OUTCOME PARSER
+# OUTCOME PARSING
 # ============================================================
 
 def parse_outcomes(text, prefix):
-
     if not text:
         return []
 
-    lines = [
-        clean_text(x)
-        for x in str(text).splitlines()
-        if clean_text(x)
-    ]
+    lines = str(text).splitlines()
 
-    results = []
-
-    explicit_pattern = re.compile(
-        rf"^\s*{prefix}\s*[-:]?\s*\d+\s*[\)\.\-:\u2013]?\s*(.+)$",
-        re.IGNORECASE
-    )
+    outcomes = []
 
     for line in lines:
+        line = clean_text(line)
 
-        match = explicit_pattern.match(line)
+        if not line:
+            continue
 
-        if match:
+        # Remove numbering
+        line = re.sub(
+            r"^\s*(?:CLO|PLO)?\s*[-_:]?\s*\d+\s*[\.\):\-]?\s*",
+            "",
+            line,
+            flags=re.IGNORECASE
+        )
 
-            value = clean_text(
-                match.group(1)
+        # Remove bullets
+        line = re.sub(r"^[\-\*\u2022]+\s*", "", line)
+
+        # If the line contains a prefix, keep content after it
+        if prefix:
+            line = re.sub(
+                rf"^\s*{prefix}\s*\d*\s*[:\-]\s*",
+                "",
+                line,
+                flags=re.IGNORECASE
             )
 
-            if value:
-                results.append(value)
+        line = clean_text(line)
 
-    if results:
-        return results
+        if len(line) >= 5:
+            outcomes.append(line)
 
-    # Fallback for numbered lists.
-    number_pattern = re.compile(
-        r"^\s*\d+\s*[\)\.\-:\u2013]\s*(.+)$"
-    )
-
-    for line in lines:
-
-        match = number_pattern.match(line)
-
-        if match:
-
-            value = clean_text(
-                match.group(1)
-            )
-
-            if value:
-                results.append(value)
-
-    return unique_list(results)
+    return outcomes
 
 
 # ============================================================
-# OUTCOME CONCEPT EXTRACTION
-# ============================================================
-
-def outcome_phrase(outcome, limit=5):
-
-    words = normalize(outcome).split()
-
-    selected = []
-    seen = set()
-
-    for word in words:
-
-        if word in STOP_WORDS:
-            continue
-
-        if word in OBE_WORDS:
-            continue
-
-        if word in GENERIC_OUTCOME_WORDS:
-            continue
-
-        if word in ALL_BLOOM_VERBS:
-            continue
-
-        if len(word) < 3:
-            continue
-
-        s = stem(word)
-
-        if s in seen:
-            continue
-
-        seen.add(s)
-        selected.append(word)
-
-        if len(selected) >= limit:
-            break
-
-    return " ".join(selected)
-
-
-# ============================================================
-# BLOOM
+# BLOOM FUNCTIONS
 # ============================================================
 
 def detect_bloom(question):
+    q = normalize(question)
 
-    normalized = normalize(question)
+    matches = []
 
-    priority = [
-        "Create",
-        "Evaluate",
-        "Analyze",
-        "Apply",
-        "Understand",
-        "Remember"
-    ]
-
-    for level in priority:
-
-        for verb in BLOOM_VERBS[level]:
-
+    for level, data in BLOOM_LEVELS.items():
+        for verb in data["verbs"]:
             if re.search(
-                rf"\b{re.escape(verb)}\w*\b",
-                normalized
+                rf"\b{re.escape(normalize(verb))}\b",
+                q
             ):
-                return level
+                matches.append(
+                    (
+                        level,
+                        data["rank"],
+                        len(normalize(verb).split())
+                    )
+                )
 
-    if normalized.startswith(("why ", "how ")):
+    if not matches:
         return "Understand"
 
-    if normalized.startswith(
-        ("what ", "who ", "when ", "where ")
-    ):
-        return "Remember"
-
-    return "Understand"
-
-
-def bloom_alignment(question, target):
-
-    actual = detect_bloom(question)
-
-    actual_number = BLOOM_ORDER.get(
-        actual,
-        2
+    matches.sort(
+        key=lambda x: (x[1], x[2]),
+        reverse=True
     )
 
-    target_number = BLOOM_ORDER.get(
-        target,
-        2
-    )
+    return matches[0][0]
 
-    if actual == target:
+
+def bloom_alignment(question, target_bloom):
+    detected = detect_bloom(question)
+
+    target_rank = BLOOM_LEVELS.get(
+        target_bloom,
+        BLOOM_LEVELS["Understand"]
+    )["rank"]
+
+    detected_rank = BLOOM_LEVELS.get(
+        detected,
+        BLOOM_LEVELS["Understand"]
+    )["rank"]
+
+    if detected == target_bloom:
         return 100.0
 
-    # Higher cognitive level can demonstrate a lower target.
-    if actual_number > target_number:
-        return 95.0
+    difference = abs(target_rank - detected_rank)
 
-    if actual_number == target_number - 1:
-        return 82.0
+    if difference == 1:
+        return 78.0
 
-    if actual_number == target_number - 2:
-        return 65.0
+    if difference == 2:
+        return 62.0
 
-    return 40.0
+    if difference == 3:
+        return 45.0
+
+    return 30.0
 
 
 def outcome_action_level(outcome):
-
-    normalized = normalize(outcome)
-
-    levels = []
-
-    for level, verbs in BLOOM_VERBS.items():
-
-        for verb in verbs:
-
-            if re.search(
-                rf"\b{re.escape(verb)}\w*\b",
-                normalized
-            ):
-                levels.append(
-                    BLOOM_ORDER[level]
-                )
-
-    if not levels:
-        return None
-
-    return max(levels)
+    return detect_bloom(outcome)
 
 
 def action_alignment(question, outcome):
+    q_level = detect_bloom(question)
+    o_level = outcome_action_level(outcome)
 
-    question_level = detect_bloom(question)
+    q_rank = BLOOM_LEVELS[q_level]["rank"]
+    o_rank = BLOOM_LEVELS[o_level]["rank"]
 
-    q_number = BLOOM_ORDER.get(
-        question_level,
-        2
-    )
+    difference = abs(q_rank - o_rank)
 
-    o_number = outcome_action_level(
-        outcome
-    )
-
-    if o_number is None:
+    if difference == 0:
         return 100.0
-
-    if q_number == o_number:
-        return 100.0
-
-    if q_number > o_number:
-        return 95.0
-
-    difference = o_number - q_number
 
     if difference == 1:
-        return 80.0
+        return 82.0
 
     if difference == 2:
-        return 65.0
+        return 66.0
 
-    return 45.0
+    if difference == 3:
+        return 50.0
+
+    return 35.0
 
 
 # ============================================================
-# COURSE CONCEPT MATCHING
+# SUBJECT RELEVANCE
 # ============================================================
 
-def overlap_metrics(question, reference):
+def subject_score(question, course_name, course_content):
+    q_tokens = stemmed_tokens(question)
 
-    q = token_set(question)
-    r = token_set(reference)
+    if not q_tokens:
+        return 20.0
 
-    if not q or not r:
-        return {
-            "coverage": 0.0,
-            "precision": 0.0,
-            "overlap": 0
+    course_tokens = stemmed_tokens(
+        f"{course_name} {course_content}"
+    )
+
+    if not course_tokens:
+        return 70.0
+
+    meaningful_course = {
+        x for x in course_tokens
+        if x not in {
+            stem(v) for v in GENERIC_OUTCOME_WORDS
         }
-
-    overlap = q.intersection(r)
-
-    coverage = (
-        len(overlap)
-        / max(1, len(r))
-    ) * 100
-
-    precision = (
-        len(overlap)
-        / max(1, len(q))
-    ) * 100
-
-    return {
-        "coverage": min(100.0, coverage),
-        "precision": min(100.0, precision),
-        "overlap": len(overlap)
     }
 
+    overlap = len(q_tokens & meaningful_course)
 
-def subject_score(
-    question,
-    course_name,
-    course_content
-):
+    if overlap == 0:
+        return 35.0
 
-    reference = (
-        f"{course_name} "
-        f"{course_content}"
+    coverage = overlap / max(
+        1,
+        min(len(q_tokens), 8)
     )
 
-    metrics = overlap_metrics(
-        question,
-        reference
-    )
+    score = 45 + coverage * 55
 
-    coverage = metrics["coverage"]
-    precision = metrics["precision"]
+    # Topic-specific question should score higher
+    if overlap >= 3:
+        score += 5
 
-    # Subject relevance is question-specific.
-    score = (
-        coverage * 0.65
-        + precision * 0.35
-    )
-
-    # Small domain evidence bonus.
-    q_domain, q_score = detect_domain(
-        question
-    )
-
-    r_domain, r_score = detect_domain(
-        reference
-    )
-
-    if (
-        q_domain
-        and r_domain
-        and q_domain == r_domain
-    ):
-        score += 10
-
-    return min(100.0, max(0.0, score))
-
-
-# ============================================================
-# DOMAIN DETECTION
-# ============================================================
-
-DOMAIN_KEYWORDS = {
-    "chemistry": {
-        "atom", "molecule", "chemical", "reaction",
-        "bond", "acid", "base", "electron",
-        "compound", "solution", "molarity",
-        "oxidation", "reduction", "organic"
-    },
-
-    "physics": {
-        "force", "motion", "energy", "momentum",
-        "velocity", "acceleration", "electric",
-        "magnetic", "wave", "optics", "mass",
-        "gravity", "current", "voltage"
-    },
-
-    "mathematics": {
-        "equation", "function", "matrix",
-        "integral", "derivative", "probability",
-        "statistics", "algebra", "geometry",
-        "calculus", "vector", "limit"
-    },
-
-    "biology": {
-        "cell", "gene", "protein", "organism",
-        "enzyme", "biology", "dna", "rna",
-        "metabolism", "evolution", "tissue"
-    },
-
-    "computer science": {
-        "algorithm", "programming", "software",
-        "database", "network", "computer",
-        "code", "python", "java", "data",
-        "system", "function", "variable"
-    },
-
-    "english": {
-        "writing", "reading", "essay", "paragraph",
-        "grammar", "tone", "purpose", "main",
-        "idea", "organization", "communication",
-        "language", "author"
-    },
-
-    "business": {
-        "marketing", "finance", "management",
-        "business", "customer", "organization",
-        "accounting", "strategy", "market",
-        "investment", "leadership"
-    }
-}
-
-
-def detect_domain(text):
-
-    t = token_set(text)
-
-    best_domain = None
-    best_score = 0
-
-    for domain, words in DOMAIN_KEYWORDS.items():
-
-        stems = {
-            stem(word)
-            for word in words
-        }
-
-        score = len(
-            t.intersection(stems)
-        )
-
-        if score > best_score:
-            best_score = score
-            best_domain = domain
-
-    return best_domain, best_score
+    return min(100.0, score)
 
 
 # ============================================================
 # CLO ALIGNMENT
 # ============================================================
 
-def clo_alignment(
-    question,
-    clo,
-    course_name,
-    course_content
-):
+def clo_alignment(question, clo):
+    if not clo:
+        return 0.0
 
-    q_tokens = token_set(question)
-    clo_tokens = set(
-        outcome_tokens(clo)
-    )
+    q_tokens = stemmed_tokens(question)
 
-    course_tokens = token_set(
-        f"{course_name} {course_content}"
-    )
+    clo_tokens = meaningful_outcome_tokens(clo)
 
-    # --------------------------------------------
-    # Concept coverage
-    # --------------------------------------------
+    if not clo_tokens:
+        # Generic CLO: rely on action and question content
+        action = action_alignment(question, clo)
 
-    if clo_tokens:
+        if action >= 80:
+            return 82.0
 
-        overlap = q_tokens.intersection(
-            clo_tokens
-        )
+        return action
 
-        coverage = (
-            len(overlap)
-            / max(1, len(clo_tokens))
-        ) * 100
+    matched = q_tokens & clo_tokens
 
-        # Question must also devote reasonable
-        # space to CLO concepts.
-        precision = (
-            len(overlap)
-            / max(1, len(q_tokens))
-        ) * 100
+    coverage = len(matched) / len(clo_tokens)
 
-        concept_score = (
-            coverage * 0.75
-            + precision * 0.25
-        )
+    action = action_alignment(question, clo)
 
-    else:
-        # Generic CLO:
-        # use course evidence instead.
-        concept_metrics = overlap_metrics(
-            question,
-            f"{course_name} {course_content}"
-        )
-
-        concept_score = (
-            concept_metrics["coverage"] * 0.70
-            + concept_metrics["precision"] * 0.30
-        )
-
-    # --------------------------------------------
-    # Action alignment
-    # --------------------------------------------
-
-    action_score = action_alignment(
-        question,
-        clo
-    )
-
-    # --------------------------------------------
-    # Course-specific evidence
-    # --------------------------------------------
-
-    course_metrics = overlap_metrics(
-        question,
-        f"{course_name} {course_content}"
-    )
-
-    course_score = (
-        course_metrics["coverage"] * 0.60
-        + course_metrics["precision"] * 0.40
-    )
-
+    # Strong weighting toward actual CLO concept coverage
     score = (
-        concept_score * 0.70
-        + action_score * 0.20
-        + course_score * 0.10
+        coverage * 70
+        + action * 30
     )
 
-    return min(
-        100.0,
-        max(0.0, score)
-    )
+    # Extra credit for direct concept coverage
+    if len(matched) >= 2:
+        score += 5
+
+    if len(matched) >= 4:
+        score += 5
+
+    return min(100.0, score)
 
 
 # ============================================================
 # PLO ALIGNMENT
 # ============================================================
 
-def plo_alignment(
-    question,
-    plo,
-    course_name,
-    course_content
-):
+def plo_alignment(question, plo, course_name, course_content):
+    if not plo:
+        return 0.0
 
-    q_tokens = token_set(question)
-    plo_tokens = set(
-        outcome_tokens(plo)
-    )
+    q_tokens = stemmed_tokens(question)
 
-    # --------------------------------------------
-    # PLO concept evidence
-    # --------------------------------------------
+    plo_tokens = meaningful_outcome_tokens(plo)
 
-    if plo_tokens:
-
-        overlap = q_tokens.intersection(
-            plo_tokens
-        )
-
-        coverage = (
-            len(overlap)
-            / max(1, len(plo_tokens))
-        ) * 100
-
-        precision = (
-            len(overlap)
-            / max(1, len(q_tokens))
-        ) * 100
-
-        concept_score = (
-            coverage * 0.70
-            + precision * 0.30
-        )
-
-    else:
-        concept_score = 0.0
-
-    # --------------------------------------------
-    # PLO action
-    # --------------------------------------------
-
-    action_score = action_alignment(
-        question,
-        plo
-    )
-
-    # --------------------------------------------
-    # Discipline evidence
-    # --------------------------------------------
-
-    discipline_metrics = overlap_metrics(
-        question,
+    discipline_tokens = stemmed_tokens(
         f"{course_name} {course_content}"
     )
 
-    discipline_score = (
-        discipline_metrics["coverage"] * 0.60
-        + discipline_metrics["precision"] * 0.40
-    )
-
-    # Generic PLO:
-    #
-    # "Apply knowledge of the discipline"
-    #
-    # should be evaluated through:
-    # 1. cognitive action
-    # 2. actual course concepts
-    # rather than requiring the word "discipline".
-
-    if len(plo_tokens) <= 1:
-
-        score = (
-            action_score * 0.65
-            + discipline_score * 0.35
-        )
-
+    if plo_tokens:
+        matched_plo = q_tokens & plo_tokens
+        plo_coverage = len(matched_plo) / len(plo_tokens)
     else:
+        plo_coverage = 0.0
 
+    # Generic PLOs such as:
+    # "Apply knowledge of the discipline"
+    # require actual course/domain evidence.
+    domain_matches = q_tokens & discipline_tokens
+
+    domain_coverage = min(
+        1.0,
+        len(domain_matches) / max(1, min(4, len(discipline_tokens)))
+    )
+
+    action = action_alignment(question, plo)
+
+    if plo_tokens:
         score = (
-            concept_score * 0.50
-            + action_score * 0.30
-            + discipline_score * 0.20
+            plo_coverage * 55
+            + domain_coverage * 20
+            + action * 25
+        )
+    else:
+        score = (
+            domain_coverage * 55
+            + action * 45
         )
 
-    return min(
-        100.0,
-        max(0.0, score)
-    )
+    if len(domain_matches) >= 2:
+        score += 5
+
+    return min(100.0, score)
 
 
 # ============================================================
@@ -994,202 +499,160 @@ def plo_alignment(
 # ============================================================
 
 def specificity_score(question):
+    q = clean_text(question)
+    q_norm = normalize(q)
 
-    q = normalize(question)
-    words = q.split()
+    if not q_norm:
+        return 0.0
 
-    if not words:
+    score = 45.0
+
+    q_words = q_norm.split()
+
+    # Reasonable length
+    if len(q_words) >= 8:
+        score += 12
+
+    if len(q_words) >= 12:
+        score += 8
+
+    if len(q_words) >= 18:
+        score += 5
+
+    # Direct action
+    detected = detect_bloom(q)
+
+    if detected:
+        score += 10
+
+    # Objects / constraints
+    if re.search(
+        r"\b(using|given|based on|using the|from the|with|for|"
+        r"compare|contrast|calculate|justify|provide|identify|"
+        r"explain|analyze|evaluate|design|develop)\b",
+        q_norm
+    ):
+        score += 10
+
+    # Number/detail indicators
+    if re.search(
+        r"\b\d+\b|\btwo\b|\bthree\b|\bfour\b|\bfirst\b|\bsecond\b",
+        q_norm
+    ):
+        score += 5
+
+    # Penalize vague wording
+    vague_phrases = [
+        "discuss the topic",
+        "write something about",
+        "tell me about",
+        "say something about",
+        "what do you know about",
+        "discuss",
+        "explain the topic"
+    ]
+
+    for phrase in vague_phrases:
+        if phrase in q_norm:
+            score -= 12
+
+    return max(0.0, min(100.0, score))
+
+
+# ============================================================
+# QUESTION QUALITY
+# ============================================================
+
+def quality_score(question):
+    q = clean_text(question)
+    q_norm = normalize(q)
+
+    if not q_norm:
         return 0.0
 
     score = 55.0
 
-    # Clear cognitive verb
-    if any(
-        re.search(
-            rf"\b{re.escape(verb)}\w*\b",
-            q
-        )
-        for verb in ALL_BLOOM_VERBS
-    ):
-        score += 15
+    words = q_norm.split()
 
-    # Reasonable length
-    count = len(words)
+    if 8 <= len(words) <= 35:
+        score += 12
 
-    if 7 <= count <= 30:
-        score += 15
+    if 36 <= len(words) <= 50:
+        score += 5
 
-    elif 31 <= count <= 40:
-        score += 8
+    if len(words) < 6:
+        score -= 15
 
-    elif count < 5:
-        score -= 25
-
-    elif count > 50:
+    if len(words) > 60:
         score -= 10
 
-    # Practical/contextual evidence
-    context_words = {
-        "case", "scenario", "situation",
-        "problem", "data", "example",
-        "experiment", "result", "given"
-    }
-
-    if any(
-        word in q
-        for word in context_words
-    ):
-        score += 8
-
-    # Explicit task requirement
-    if any(
-        phrase in q
-        for phrase in [
-            "justify",
-            "compare",
-            "explain how",
-            "determine",
-            "identify",
-            "calculate",
-            "design"
-        ]
-    ):
-        score += 7
-
-    return min(
-        100.0,
-        max(0.0, score)
-    )
-
-
-# ============================================================
-# QUALITY
-# ============================================================
-
-def quality_score(question):
-
-    q = clean_text(question)
-    n = normalize(q)
-
-    if not q:
-        return 0.0
-
-    score = 70.0
-
-    # Proper question mark
-    if q.endswith("?"):
-        score += 10
-
-    # Duplicate punctuation
-    if re.search(
-        r"[.!?]{2,}$",
-        q
-    ):
-        score -= 30
-
-    # OBE jargon should not appear
-    # in student-facing question.
-    if any(
-        term in n
-        for term in [
-            "clo",
-            "plo",
-            "learning outcome",
-            "attainment",
-            "alignment",
-            "bloom taxonomy"
-        ]
-    ):
-        score -= 30
-
-    # Vague wording
+    # Avoid vague/open wording
     vague = [
-        "tell me about",
-        "write something about",
-        "discuss everything",
-        "explain the learning outcome",
-        "according to the clo",
-        "according to the plo"
+        "something",
+        "anything",
+        "in general",
+        "as much as possible",
+        "etc",
+        "and so on"
     ]
 
-    for phrase in vague:
-        if phrase in n:
-            score -= 25
+    for item in vague:
+        if item in q_norm:
+            score -= 8
 
-    # Multiple task verbs can indicate a multi-part
-    # but still specific question.
-    task_count = 0
+    # Penalize duplicated words
+    counts = Counter(words)
 
-    for verb in ALL_BLOOM_VERBS:
-        if re.search(
-            rf"\b{re.escape(verb)}\w*\b",
-            n
-        ):
-            task_count += 1
+    duplicates = [
+        word for word, count in counts.items()
+        if count >= 4 and len(word) > 3
+    ]
 
-    if task_count >= 1:
-        score += 5
+    score -= len(duplicates) * 5
 
-    if 5 <= len(n.split()) <= 35:
-        score += 5
+    # Good question structure
+    if q.endswith("?"):
+        score += 8
 
-    return min(
-        100.0,
-        max(0.0, score)
-    )
+    # Multiple question marks are bad
+    if q.count("?") > 1:
+        score -= 10
+
+    return max(0.0, min(100.0, score))
 
 
 # ============================================================
 # FIND BEST CLO / PLO
 # ============================================================
 
-def find_best_clo(
-    question,
-    clos,
-    course_name,
-    course_content
-):
-
+def find_best_clo(question, clos):
     if not clos:
         return "", 0.0
 
-    scores = []
+    results = []
 
     for clo in clos:
+        score = clo_alignment(question, clo)
 
-        score = clo_alignment(
-            question,
-            clo,
-            course_name,
-            course_content
-        )
-
-        scores.append(
+        results.append(
             (clo, score)
         )
 
-    scores.sort(
+    results.sort(
         key=lambda x: x[1],
         reverse=True
     )
 
-    return scores[0]
+    return results[0]
 
 
-def find_best_plo(
-    question,
-    plos,
-    course_name,
-    course_content
-):
-
+def find_best_plo(question, plos, course_name, course_content):
     if not plos:
         return "", 0.0
 
-    scores = []
+    results = []
 
     for plo in plos:
-
         score = plo_alignment(
             question,
             plo,
@@ -1197,16 +660,16 @@ def find_best_plo(
             course_content
         )
 
-        scores.append(
+        results.append(
             (plo, score)
         )
 
-    scores.sort(
+    results.sort(
         key=lambda x: x[1],
         reverse=True
     )
 
-    return scores[0]
+    return results[0]
 
 
 # ============================================================
@@ -1222,24 +685,22 @@ def evaluate_question(
     target_bloom
 ):
 
-    question = clean_text(question)
+    question = finalize_question(question)
+
+    best_clo, clo_score = find_best_clo(
+        question,
+        clos
+    )
+
+    best_plo, plo_score = find_best_plo(
+        question,
+        plos,
+        course_name,
+        course_content
+    )
 
     subject = subject_score(
         question,
-        course_name,
-        course_content
-    )
-
-    matched_clo, clo = find_best_clo(
-        question,
-        clos,
-        course_name,
-        course_content
-    )
-
-    matched_plo, plo = find_best_plo(
-        question,
-        plos,
         course_name,
         course_content
     )
@@ -1257,67 +718,198 @@ def evaluate_question(
         question
     )
 
-    # ========================================================
-    # WEIGHTED SCORE
-    # ========================================================
+    # --------------------------------------------------------
+    # QUESTION-SPECIFIC WEIGHTING
+    # --------------------------------------------------------
 
     overall = (
         subject * 0.20
-        + clo * 0.20
-        + plo * 0.20
+        + clo_score * 0.25
+        + plo_score * 0.25
         + bloom * 0.15
         + specificity * 0.10
         + quality * 0.05
-        + (
-            # CLO action evidence
-            action_alignment(
-                question,
-                matched_clo
-            ) * 0.10
-        )
     )
 
-    overall = round(
-        min(100.0, max(0.0, overall)),
-        1
-    )
-
-    # ========================================================
+    # --------------------------------------------------------
     # STRICT ATTAINMENT
-    # ========================================================
+    # --------------------------------------------------------
 
-    attained = (
+    clo_attained = clo_score >= 80
+    plo_attained = plo_score >= 80
+    bloom_attained = bloom >= 80
+    subject_attained = subject >= 80
+
+    alignment_attained = (
         overall >= 80
-        and subject >= 80
-        and clo >= 80
-        and plo >= 80
-        and bloom >= 80
-        and specificity >= 70
-        and quality >= 70
+        and clo_attained
+        and plo_attained
+        and bloom_attained
+        and subject_attained
     )
-
-    if attained:
-        status = "Alignment Attained"
-    elif overall >= 60:
-        status = "Needs Revision"
-    else:
-        status = "Not Aligned"
 
     return {
         "question": question,
-        "overall": overall,
-        "subject": round(subject, 1),
-        "clo": round(clo, 1),
-        "plo": round(plo, 1),
-        "bloom": round(bloom, 1),
-        "specificity": round(specificity, 1),
-        "quality": round(quality, 1),
-        "actual_bloom": detect_bloom(question),
-        "target_bloom": target_bloom,
-        "matched_clo": matched_clo,
-        "matched_plo": matched_plo,
-        "status": status
+        "overall_score": round(overall, 2),
+        "subject_score": round(subject, 2),
+        "clo_score": round(clo_score, 2),
+        "plo_score": round(plo_score, 2),
+        "bloom_score": round(bloom, 2),
+        "specificity_score": round(specificity, 2),
+        "quality_score": round(quality, 2),
+        "detected_bloom": detect_bloom(question),
+        "best_clo": best_clo,
+        "best_plo": best_plo,
+        "clo_attained": clo_attained,
+        "plo_attained": plo_attained,
+        "bloom_attained": bloom_attained,
+        "subject_attained": subject_attained,
+        "alignment_attained": alignment_attained
     }
+
+
+# ============================================================
+# FILE READING
+# ============================================================
+
+def read_pdf(file):
+    try:
+        import fitz
+
+        doc = fitz.open(
+            stream=file.read(),
+            filetype="pdf"
+        )
+
+        pages = []
+
+        for page in doc:
+            text = page.get_text("text")
+
+            if text:
+                pages.append(text)
+
+        return "\n".join(pages)
+
+    except Exception as e:
+        return f"PDF_READER_ERROR: {e}"
+
+
+def read_docx(file):
+    try:
+        from docx import Document
+
+        document = Document(
+            io.BytesIO(file.read())
+        )
+
+        paragraphs = [
+            p.text
+            for p in document.paragraphs
+            if p.text.strip()
+        ]
+
+        return "\n".join(paragraphs)
+
+    except Exception as e:
+        return f"DOCX_READER_ERROR: {e}"
+
+
+def read_excel(file):
+    try:
+        data = pd.read_excel(
+            io.BytesIO(file.read()),
+            sheet_name=None
+        )
+
+        output = []
+
+        for sheet_name, df in data.items():
+
+            output.append(
+                f"Sheet: {sheet_name}"
+            )
+
+            for _, row in df.iterrows():
+
+                values = [
+                    clean_text(v)
+                    for v in row.tolist()
+                    if pd.notna(v)
+                ]
+
+                if values:
+                    output.append(
+                        " | ".join(values)
+                    )
+
+        return "\n".join(output)
+
+    except Exception as e:
+        return f"EXCEL_READER_ERROR: {e}"
+
+
+def read_csv(file):
+    try:
+        df = pd.read_csv(
+            io.BytesIO(file.read())
+        )
+
+        output = []
+
+        for _, row in df.iterrows():
+
+            values = [
+                clean_text(v)
+                for v in row.tolist()
+                if pd.notna(v)
+            ]
+
+            if values:
+                output.append(
+                    " | ".join(values)
+                )
+
+        return "\n".join(output)
+
+    except Exception as e:
+        return f"CSV_READER_ERROR: {e}"
+
+
+def read_txt(file):
+    try:
+        return file.read().decode(
+            "utf-8",
+            errors="ignore"
+        )
+
+    except Exception:
+        try:
+            file.seek(0)
+            return str(file.read())
+        except Exception as e:
+            return f"TXT_READER_ERROR: {e}"
+
+
+def read_uploaded_file(file):
+    name = file.name.lower()
+
+    if name.endswith(".pdf"):
+        return read_pdf(file)
+
+    if name.endswith(".docx"):
+        return read_docx(file)
+
+    if name.endswith(".xlsx") or name.endswith(".xls"):
+        return read_excel(file)
+
+    if name.endswith(".csv"):
+        return read_csv(file)
+
+    if name.endswith(".txt"):
+        return read_txt(file)
+
+    return ""
 
 
 # ============================================================
@@ -1325,328 +917,409 @@ def evaluate_question(
 # ============================================================
 
 def extract_questions(text):
+    text = clean_text(text)
 
     if not text:
         return []
 
-    text = text.replace(
-        "\r\n",
-        "\n"
-    )
-
-    lines = text.splitlines()
+    # First try line-based extraction
+    raw_lines = [
+        clean_text(x)
+        for x in text.splitlines()
+        if clean_text(x)
+    ]
 
     questions = []
 
-    current = ""
+    for line in raw_lines:
 
-    for line in lines:
-
-        line = clean_text(line)
-
-        if not line:
-            continue
-
-        numbered = re.match(
-            r"^\s*(?:Q(?:uestion)?\s*)?\d+\s*[\)\.\-:]\s*(.+)",
+        # Remove numbering
+        candidate = re.sub(
+            r"^\s*(?:Q(?:uestion)?\s*)?\d+\s*[\.\):\-]\s*",
+            "",
             line,
-            re.IGNORECASE
+            flags=re.IGNORECASE
         )
 
-        if numbered:
+        candidate = clean_text(candidate)
 
-            if current:
-                questions.append(
-                    current
-                )
-
-            current = numbered.group(1)
+        if len(candidate.split()) < 4:
             continue
 
-        if "?" in line:
+        # Explicit question
+        if "?" in candidate:
+            parts = re.split(r"(?<=\?)\s+", candidate)
 
-            if current:
-                current += " " + line
-            else:
-                current = line
+            for part in parts:
+                part = finalize_question(part)
 
+                if len(part.split()) >= 4:
+                    questions.append(part)
+
+        # Instruction/question style without ?
+        elif re.match(
+            r"^(define|describe|explain|identify|"
+            r"analyze|analyse|evaluate|compare|contrast|"
+            r"calculate|solve|apply|discuss|justify|"
+            r"design|develop|construct|write|state|list|"
+            r"demonstrate|differentiate|interpret|"
+            r"assess|critique|classify)\b",
+            candidate,
+            flags=re.IGNORECASE
+        ):
             questions.append(
-                current
+                finalize_question(candidate)
             )
 
-            current = ""
+    # If line parsing produced nothing,
+    # split text into sentence-like segments.
+    if not questions:
 
-        elif current:
-
-            current += " " + line
-
-    if current:
-        questions.append(
-            current
+        pieces = re.split(
+            r"(?<=[?.])\s+",
+            text
         )
 
-    # Remove obvious non-question headings.
-    final = []
+        for piece in pieces:
+
+            piece = clean_text(piece)
+
+            if len(piece.split()) >= 5:
+
+                questions.append(
+                    finalize_question(piece)
+                )
+
+    # Remove duplicates while preserving order
+    unique = []
+
+    seen = set()
 
     for q in questions:
 
-        q = clean_text(q)
+        key = normalize(q)
 
-        if len(q.split()) < 4:
-            continue
+        if key not in seen:
+            seen.add(key)
+            unique.append(q)
 
-        if normalize(q) in {
-            "course description",
-            "course objectives",
-            "learning outcomes",
-            "answer key",
-            "instructions",
-            "rubric"
-        }:
-            continue
-
-        final.append(q)
-
-    return unique_list(final)
+    return unique
 
 
 # ============================================================
-# REVISION TOPIC
+# TOPIC EXTRACTION
 # ============================================================
 
 def choose_topic(
+    question,
     course_name,
     course_content,
-    matched_clo,
-    matched_plo
+    clo
 ):
+    """
+    Selects meaningful concepts from CLO + course content
+    that can be used in a direct assessment revision.
+    """
 
-    # Try to find concepts shared with CLO/PLO.
-    course_sentences = re.split(
-        r"[.\n;]+",
-        clean_text(course_content)
-    )
+    q_tokens = stemmed_tokens(question)
 
-    course_sentences = [
-        clean_text(x)
-        for x in course_sentences
-        if len(clean_text(x).split()) >= 2
+    content_words = [
+        w for w in tokens(
+            f"{course_name} {course_content} {clo}"
+        )
+        if w not in GENERIC_OUTCOME_WORDS
     ]
 
-    clo_terms = set(
-        outcome_tokens(matched_clo)
+    counts = Counter(
+        stem(w)
+        for w in content_words
     )
 
-    plo_terms = set(
-        outcome_tokens(matched_plo)
-    )
+    # Prefer concepts already appearing in the question
+    question_topics = [
+        w for w in q_tokens
+        if w in counts
+    ]
 
-    best = ""
-    best_score = -1
-
-    for sentence in course_sentences:
-
-        sentence_terms = token_set(
-            sentence
+    if question_topics:
+        ranked = sorted(
+            question_topics,
+            key=lambda x: counts[x],
+            reverse=True
         )
 
-        score = (
-            len(
-                sentence_terms.intersection(
-                    clo_terms
-                )
-            ) * 5
-            +
-            len(
-                sentence_terms.intersection(
-                    plo_terms
-                )
-            ) * 4
-            +
-            min(
-                len(sentence_terms),
-                10
-            )
-        )
+        return " ".join(ranked[:5])
 
-        if score > best_score:
-            best_score = score
-            best = sentence
+    ranked = [
+        word for word, count in counts.most_common(10)
+        if len(word) > 3
+    ]
 
-    if not best:
-        best = (
-            outcome_phrase(
-                matched_clo,
-                5
-            )
-            or outcome_phrase(
-                matched_plo,
-                5
-            )
-            or course_name
-            or "the given topic"
-        )
-
-    words = best.split()
-
-    if len(words) > 10:
-        best = " ".join(
-            words[:10]
-        )
-
-    return best
+    return " ".join(ranked[:5])
 
 
 # ============================================================
-# REVISION GENERATION
+# OUTCOME CONCEPT EXTRACTION
+# ============================================================
+
+def extract_core_concepts(outcome):
+    words = tokens(outcome)
+
+    concepts = []
+
+    for word in words:
+
+        if word in GENERIC_OUTCOME_WORDS:
+            continue
+
+        if len(word) <= 3:
+            continue
+
+        concepts.append(word)
+
+    # Preserve order and remove duplicates
+    result = []
+
+    for word in concepts:
+
+        if word not in result:
+            result.append(word)
+
+    return result[:8]
+
+
+# ============================================================
+# REVISION CANDIDATES
 # ============================================================
 
 def generate_candidates(
-    original_question,
+    question,
     course_name,
     course_content,
-    matched_clo,
-    matched_plo,
+    clo,
+    plo,
     target_bloom
 ):
 
     topic = choose_topic(
+        question,
         course_name,
         course_content,
-        matched_clo,
-        matched_plo
+        clo
     )
 
-    clo_phrase = outcome_phrase(
-        matched_clo,
-        4
+    concepts = extract_core_concepts(
+        clo
     )
 
-    plo_phrase = outcome_phrase(
-        matched_plo,
-        4
+    if not concepts:
+        concepts = extract_core_concepts(
+            plo
+        )
+
+    if not concepts:
+        concepts = tokens(
+            f"{topic}"
+        )[:5]
+
+    concept_phrase = " ".join(
+        concepts[:5]
     )
 
-    if not clo_phrase:
-        clo_phrase = topic
-
-    if not plo_phrase:
-        plo_phrase = topic
-
+    # Keep the student's assessment wording direct.
     candidates = []
 
     if target_bloom == "Remember":
 
-        candidates = [
-            f"Define {topic} and identify its key features",
-            f"Define {clo_phrase} in the context of {topic}",
-            f"Identify the main features of {topic} related to {clo_phrase}",
-            f"List the key characteristics of {topic} and identify {clo_phrase}",
-            f"State the main elements of {topic} associated with {clo_phrase}"
-        ]
+        candidates.extend([
+            f"Identify and list the key {concept_phrase} relevant to {topic}",
+            f"State the main {concept_phrase} associated with {topic}",
+            f"Identify the essential {concept_phrase} in {topic}"
+        ])
 
     elif target_bloom == "Understand":
 
-        candidates = [
-            f"Explain {topic} and describe how {clo_phrase} relates to it",
-            f"Describe {topic} and explain the role of {clo_phrase}",
-            f"Explain the relationship between {topic} and {clo_phrase}",
-            f"Explain {clo_phrase} using {topic} as the context",
-            f"Describe the main features of {topic} and explain {clo_phrase}"
-        ]
+        candidates.extend([
+            f"Explain the key {concept_phrase} in {topic} and describe how they are related",
+            f"Describe the main {concept_phrase} in {topic} and explain their significance",
+            f"Explain {concept_phrase} in {topic} using a relevant example"
+        ])
 
     elif target_bloom == "Apply":
 
-        candidates = [
-            f"Given a practical problem involving {topic}, apply {clo_phrase} to solve it",
-            f"Apply {clo_phrase} to solve a practical problem involving {topic}",
-            f"Use {clo_phrase} to determine the correct solution to a problem involving {topic}",
-            f"Given a case involving {topic}, apply {clo_phrase} and determine the result",
-            f"Apply {clo_phrase} to a practical situation involving {topic}"
-        ]
+        candidates.extend([
+            f"Apply {concept_phrase} to solve a relevant problem involving {topic}",
+            f"Use {concept_phrase} to solve the given problem related to {topic}",
+            f"Demonstrate how {concept_phrase} can be applied to a specific problem in {topic}"
+        ])
 
     elif target_bloom == "Analyze":
 
-        candidates = [
-            f"Analyze {topic} by examining how {clo_phrase} affects its components",
-            f"Analyze the relationship between {topic} and {clo_phrase}",
-            f"Analyze {topic} and distinguish its major components related to {clo_phrase}",
-            f"Examine {topic} and analyze the effect of {clo_phrase}",
-            f"Compare the major components of {topic} and analyze their relationship to {clo_phrase}"
-        ]
+        candidates.extend([
+            f"Analyze the relationship among {concept_phrase} in {topic} and explain the factors that produce the observed result",
+            f"Analyze {concept_phrase} in {topic} by identifying their relationships and explaining their effects",
+            f"Examine {concept_phrase} in {topic} and explain how the identified factors influence the outcome",
+            f"Compare the relevant aspects of {concept_phrase} in {topic} and explain the differences in their effects"
+        ])
 
     elif target_bloom == "Evaluate":
 
-        candidates = [
-            f"Evaluate {topic} using {clo_phrase} as a criterion and justify your conclusion",
-            f"Assess {topic} using criteria related to {clo_phrase} and justify your judgment",
-            f"Evaluate the effectiveness of {topic} with reference to {clo_phrase} and justify your conclusion",
-            f"Critique {topic} using evidence related to {clo_phrase} and justify your conclusion",
-            f"Evaluate a solution involving {topic} and justify the decision using {clo_phrase}"
-        ]
+        candidates.extend([
+            f"Evaluate {concept_phrase} in {topic} and justify which factor has the greatest effect",
+            f"Assess {concept_phrase} in {topic} and justify your conclusion using relevant evidence",
+            f"Critique the use of {concept_phrase} in {topic} and justify an appropriate conclusion",
+            f"Evaluate the effectiveness of {concept_phrase} in addressing the given issue in {topic}"
+        ])
 
-    else:
+    elif target_bloom == "Create":
 
-        candidates = [
-            f"Design a practical solution for {topic} using {clo_phrase} and {plo_phrase}",
-            f"Develop a solution to a problem involving {topic} using {clo_phrase}",
-            f"Create a practical approach to {topic} using {clo_phrase}",
-            f"Design a solution involving {topic} that integrates {clo_phrase} and {plo_phrase}",
-            f"Develop a practical model for {topic} using {clo_phrase}"
-        ]
+        candidates.extend([
+            f"Design a solution using {concept_phrase} to address a specific problem in {topic}",
+            f"Develop a solution that integrates {concept_phrase} to address the given problem in {topic}",
+            f"Construct a suitable approach using {concept_phrase} for a problem related to {topic}",
+            f"Formulate a solution using {concept_phrase} and justify how it addresses the problem in {topic}"
+        ])
 
-    return unique_list([
-        finalize_question(x)
-        for x in candidates
-    ])
+    # Add concept-specific repair candidates
+    if concepts:
+
+        first = concepts[0]
+
+        candidates.extend([
+            f"{target_bloom} {first} in the context of {topic}",
+            f"{target_bloom} the role of {first} in {topic}",
+            f"{target_bloom} how {first} affects {topic}"
+        ])
+
+    return [
+        finalize_question(c)
+        for c in candidates
+        if c
+    ]
 
 
 # ============================================================
-# REVISION VALIDATION
+# REVISION RANKING
 # ============================================================
-
-def revision_passes(result):
-
-    return (
-        result["overall"] >= 80
-        and result["subject"] >= 80
-        and result["clo"] >= 80
-        and result["plo"] >= 80
-        and result["bloom"] >= 80
-        and result["specificity"] >= 70
-        and result["quality"] >= 70
-    )
-
 
 def revision_rank(result):
-
-    # Weakest metric is the most important.
-    weakest = min(
-        result["subject"],
-        result["clo"],
-        result["plo"],
-        result["bloom"]
-    )
-
-    average = (
-        result["overall"]
-        + result["subject"]
-        + result["clo"]
-        + result["plo"]
-        + result["bloom"]
-        + result["specificity"]
-        + result["quality"]
-    ) / 7
+    """
+    Prioritize CLO and PLO first.
+    A revision with high overall score but weak CLO/PLO
+    must not outrank an aligned revision.
+    """
 
     return (
-        weakest,
-        average,
-        result["overall"]
+        result["clo_score"],
+        result["plo_score"],
+        result["overall_score"],
+        result["bloom_score"],
+        result["subject_score"],
+        result["specificity_score"]
     )
 
 
+def revision_attained(result):
+    """
+    STRICT RULE:
+    CLO and PLO MUST BOTH be >= 80.
+    """
+
+    return (
+        result["overall_score"] >= 80
+        and result["clo_score"] >= 80
+        and result["plo_score"] >= 80
+        and result["bloom_score"] >= 80
+        and result["subject_score"] >= 80
+    )
+
+
+# ============================================================
+# REPAIR LOOP
+# ============================================================
+
+def repair_candidate(
+    candidate,
+    result,
+    course_name,
+    course_content,
+    clo,
+    plo,
+    target_bloom
+):
+
+    topic = choose_topic(
+        candidate,
+        course_name,
+        course_content,
+        clo
+    )
+
+    concepts = extract_core_concepts(clo)
+
+    if not concepts:
+        concepts = extract_core_concepts(plo)
+
+    concept_phrase = " ".join(
+        concepts[:5]
+    )
+
+    # Targeted repair based on the weakest dimension
+    if result["clo_score"] < 80:
+
+        if target_bloom == "Analyze":
+            return finalize_question(
+                f"Analyze {concept_phrase} in {topic} by explaining the relationships among the relevant factors and their effects"
+            )
+
+        if target_bloom == "Evaluate":
+            return finalize_question(
+                f"Evaluate {concept_phrase} in {topic} and justify your conclusion using relevant evidence"
+            )
+
+        if target_bloom == "Create":
+            return finalize_question(
+                f"Develop a solution using {concept_phrase} to address a specific problem in {topic}"
+            )
+
+        if target_bloom == "Apply":
+            return finalize_question(
+                f"Apply {concept_phrase} to solve a specific problem related to {topic}"
+            )
+
+        return finalize_question(
+            f"Explain {concept_phrase} in {topic} and describe their significance"
+        )
+
+    if result["plo_score"] < 80:
+
+        return finalize_question(
+            f"{target_bloom} {concept_phrase} by applying the relevant principles to the problem presented in {topic}"
+        )
+
+    if result["bloom_score"] < 80:
+
+        return finalize_question(
+            f"{target_bloom} {concept_phrase} in relation to {topic}"
+        )
+
+    if result["subject_score"] < 80:
+
+        return finalize_question(
+            f"{target_bloom} {concept_phrase} in the context of {course_name} and {topic}"
+        )
+
+    return finalize_question(
+        f"{target_bloom} {concept_phrase} in {topic}"
+    )
+
+
+# ============================================================
+# GENERATE BEST REVISION
+# ============================================================
+
 def create_revision(
-    original_question,
+    question,
     course_name,
     course_content,
     clos,
@@ -1654,45 +1327,34 @@ def create_revision(
     target_bloom
 ):
 
-    if not clos or not plos:
-        return {
-            "attained": False,
-            "question": "",
-            "result": None,
-            "message": "CLO and PLO are both required."
-        }
-
-    original_clo, _ = find_best_clo(
-        original_question,
-        clos,
-        course_name,
-        course_content
+    best_clo, _ = find_best_clo(
+        question,
+        clos
     )
 
-    original_plo, _ = find_best_plo(
-        original_question,
+    best_plo, _ = find_best_plo(
+        question,
         plos,
         course_name,
         course_content
     )
 
     candidates = generate_candidates(
-        original_question,
+        question,
         course_name,
         course_content,
-        original_clo,
-        original_plo,
+        best_clo,
+        best_plo,
         target_bloom
     )
 
-    tested = []
+    evaluated = []
+
+    # --------------------------------------------------------
+    # FIRST PASS
+    # --------------------------------------------------------
 
     for candidate in candidates:
-
-        # Ensure punctuation is clean.
-        candidate = finalize_question(
-            candidate
-        )
 
         result = evaluate_question(
             candidate,
@@ -1703,196 +1365,216 @@ def create_revision(
             target_bloom
         )
 
-        tested.append(
-            (
-                candidate,
-                result
-            )
+        evaluated.append({
+            "question": candidate,
+            "result": result,
+            "attained": revision_attained(result)
+        })
+
+    # --------------------------------------------------------
+    # REPAIR WEAK CANDIDATES
+    # --------------------------------------------------------
+
+    first_pass = sorted(
+        evaluated,
+        key=lambda x: revision_rank(
+            x["result"]
+        ),
+        reverse=True
+    )
+
+    repair_pool = first_pass[:5]
+
+    for item in repair_pool:
+
+        repaired = repair_candidate(
+            item["question"],
+            item["result"],
+            course_name,
+            course_content,
+            best_clo,
+            best_plo,
+            target_bloom
         )
 
-        # ====================================================
-        # ACCEPT ONLY A REAL PASS
-        # ====================================================
-
-        if revision_passes(result):
-
-            return {
-                "attained": True,
-                "question": candidate,
-                "result": result,
-                "message": "Alignment achieved after revision."
-            }
-
-    # ========================================================
-    # If none passes, show the strongest actual revision.
-    # Do NOT fake an 80 score.
-    # ========================================================
-
-    if tested:
-
-        best_question, best_result = max(
-            tested,
-            key=lambda item:
-                revision_rank(item[1])
+        result = evaluate_question(
+            repaired,
+            course_name,
+            course_content,
+            clos,
+            plos,
+            target_bloom
         )
 
-        return {
-            "attained": False,
-            "question": best_question,
-            "result": best_result,
-            "message": (
-                "No generated revision passed all 80% "
-                "requirements. The strongest tested revision "
-                "is displayed with its actual score."
-            )
-        }
+        evaluated.append({
+            "question": repaired,
+            "result": result,
+            "attained": revision_attained(result)
+        })
 
-    return {
-        "attained": False,
-        "question": "",
-        "result": None,
-        "message": "No revision could be generated."
-    }
+    # --------------------------------------------------------
+    # REMOVE DUPLICATES
+    # --------------------------------------------------------
 
+    unique = {}
 
-# ============================================================
-# SCORE DISPLAY
-# ============================================================
+    for item in evaluated:
 
-def score_icon(value):
+        key = normalize(
+            item["question"]
+        )
 
-    if value >= 80:
-        return "🟢"
+        if key not in unique:
 
-    if value >= 60:
-        return "🟡"
+            unique[key] = item
 
-    return "🔴"
+        else:
 
+            # Keep the better-scoring version
+            old = unique[key]
 
-def show_scores(result):
+            if revision_rank(
+                item["result"]
+            ) > revision_rank(
+                old["result"]
+            ):
+                unique[key] = item
 
-    columns = st.columns(7)
+    evaluated = list(
+        unique.values()
+    )
 
-    metrics = [
-        ("Overall", result["overall"]),
-        ("Subject", result["subject"]),
-        ("CLO", result["clo"]),
-        ("PLO", result["plo"]),
-        ("Bloom", result["bloom"]),
-        ("Specificity", result["specificity"]),
-        ("Quality", result["quality"])
-    ]
+    # --------------------------------------------------------
+    # SORT SUCCESSFUL REVISIONS FIRST
+    # --------------------------------------------------------
 
-    for column, (label, value) in zip(
-        columns,
-        metrics
-    ):
+    evaluated.sort(
+        key=lambda x: (
+            x["attained"],
+            revision_rank(x["result"])
+        ),
+        reverse=True
+    )
 
-        with column:
-
-            st.metric(
-                label,
-                f"{value:.1f}/100"
-            )
-
-            st.caption(
-                score_icon(value)
-            )
+    return evaluated
 
 
 # ============================================================
 # SESSION STATE
 # ============================================================
 
-if "results" not in st.session_state:
-    st.session_state.results = []
+if "evaluation_results" not in st.session_state:
+    st.session_state.evaluation_results = []
 
-if "revisions" not in st.session_state:
-    st.session_state.revisions = {}
+if "revision_results" not in st.session_state:
+    st.session_state.revision_results = {}
+
+if "selected_revisions" not in st.session_state:
+    st.session_state.selected_revisions = {}
+
+if "uploaded_text" not in st.session_state:
+    st.session_state.uploaded_text = ""
 
 
 # ============================================================
 # HEADER
 # ============================================================
 
-st.title(
-    "🎓 OBE Assessment Alignment Checker"
+st.title("🎓 OBE Assessment Alignment Checker")
+
+st.write(
+    "Evaluate assessment questions against subject relevance, "
+    "CLOs, PLOs and Bloom's Taxonomy, then generate and verify "
+    "direct assessment revisions."
 )
 
-st.caption(
-    "Question-specific CLO, PLO, Bloom and assessment-quality evaluation"
-)
+st.divider()
 
 
 # ============================================================
-# COURSE INPUT
+# COURSE INFORMATION
 # ============================================================
+
+st.subheader("1. Course Information")
 
 course_name = st.text_input(
     "Course / Subject Name",
-    placeholder="e.g., Chemistry, English I, Programming Fundamentals"
+    placeholder="e.g., Chemistry, English I, Database Systems"
 )
 
 course_content = st.text_area(
-    "Course Content / Syllabus",
-    height=180,
+    "Course Content / Topics",
     placeholder=(
-        "Enter course topics, chapters, concepts, or syllabus content."
-    )
+        "Enter the major topics, concepts or syllabus content "
+        "for the course."
+    ),
+    height=140
 )
 
 
 # ============================================================
-# CLO / PLO
+# CLO
 # ============================================================
 
-col1, col2 = st.columns(2)
+st.subheader("2. Course Learning Outcomes (CLOs)")
 
-with col1:
+clo_text = st.text_area(
+    "Enter CLOs — one per line",
+    placeholder=(
+        "CLO 1: Explain the fundamental concepts of the subject\n"
+        "CLO 2: Analyze relevant problems using appropriate principles"
+    ),
+    height=150
+)
 
-    clo_text = st.text_area(
-        "CLOs",
-        height=180,
-        placeholder=(
-            "CLO 1: Explain the principles of chemical bonding\n"
-            "CLO 2: Apply chemical bonding principles to solve problems"
-        )
-    )
-
-with col2:
-
-    plo_text = st.text_area(
-        "PLOs",
-        height=180,
-        placeholder=(
-            "PLO 1: Apply knowledge of the discipline\n"
-            "PLO 2: Analyze problems and develop appropriate solutions"
-        )
-    )
+clos = parse_outcomes(
+    clo_text,
+    "CLO"
+)
 
 
 # ============================================================
-# TARGET BLOOM
+# PLO
 # ============================================================
+
+st.subheader("3. Program Learning Outcomes (PLOs)")
+
+plo_text = st.text_area(
+    "Enter PLOs — one per line",
+    placeholder=(
+        "PLO 1: Apply knowledge of the discipline\n"
+        "PLO 2: Analyze complex problems"
+    ),
+    height=150
+)
+
+plos = parse_outcomes(
+    plo_text,
+    "PLO"
+)
+
+
+# ============================================================
+# BLOOM
+# ============================================================
+
+st.subheader("4. Target Bloom's Level")
 
 target_bloom = st.selectbox(
-    "Target Bloom's Level",
-    list(BLOOM_ORDER.keys()),
-    index=2
+    "Select the expected Bloom's Taxonomy level",
+    list(BLOOM_LEVELS.keys()),
+    index=1
 )
 
 
 # ============================================================
-# FILE
+# FILE UPLOAD
 # ============================================================
 
-st.markdown("---")
-
-st.subheader("📄 Upload Assessment")
+st.subheader("5. Assessment File")
 
 uploaded_file = st.file_uploader(
-    "Upload PDF, DOCX, XLSX, XLS, CSV or TXT",
+    "Upload an assessment file",
     type=[
         "pdf",
         "docx",
@@ -1903,208 +1585,199 @@ uploaded_file = st.file_uploader(
     ]
 )
 
-uploaded_text = ""
-
 if uploaded_file:
 
-    try:
+    text = read_uploaded_file(
+        uploaded_file
+    )
 
-        uploaded_text = read_uploaded_file(
-            uploaded_file
+    if text.startswith(
+        (
+            "PDF_READER_ERROR:",
+            "DOCX_READER_ERROR:",
+            "EXCEL_READER_ERROR:",
+            "CSV_READER_ERROR:",
+            "TXT_READER_ERROR:"
         )
+    ):
+
+        st.error(text)
+
+    else:
+
+        st.session_state.uploaded_text = text
 
         st.success(
-            f"File successfully read: {uploaded_file.name}"
+            f"File loaded successfully: {uploaded_file.name}"
         )
 
         with st.expander(
-            "View extracted text"
+            "Preview extracted assessment text"
         ):
-
             st.text(
-                uploaded_text[:12000]
+                text[:10000]
             )
-
-    except Exception as error:
-
-        st.error(
-            f"Could not read file: {error}"
-        )
 
 
 # ============================================================
 # MANUAL QUESTION
 # ============================================================
 
-st.subheader("✍️ Manual Question")
+st.subheader("6. Manual Question")
 
 manual_question = st.text_area(
-    "Enter a question manually if required",
-    height=120,
-    placeholder="Enter assessment question..."
+    "Enter a question manually if you do not want to use a file",
+    placeholder=(
+        "Example: Analyze how temperature affects the rate "
+        "of a chemical reaction"
+    ),
+    height=100
 )
 
 
 # ============================================================
-# QUESTIONS
+# EVALUATE BUTTON
 # ============================================================
 
-file_questions = extract_questions(
-    uploaded_text
-)
-
-questions = []
-
-for question in file_questions:
-    questions.append(question)
-
-if manual_question.strip():
-    questions.append(
-        clean_text(manual_question)
-    )
-
-questions = unique_list(
-    questions
-)
-
-if file_questions:
-
-    st.info(
-        f"{len(file_questions)} question(s) detected from the uploaded file."
-    )
-
-
-# ============================================================
-# PARSE OUTCOMES
-# ============================================================
-
-clos = parse_outcomes(
-    clo_text,
-    "CLO"
-)
-
-plos = parse_outcomes(
-    plo_text,
-    "PLO"
-)
-
-
-# ============================================================
-# ANALYZE
-# ============================================================
-
-st.markdown("---")
-
-analyze = st.button(
-    "🔍 Evaluate Questions",
+if st.button(
+    "🔍 Evaluate Assessment",
     type="primary",
     use_container_width=True
-)
-
-if analyze:
+):
 
     if not course_name.strip():
-        st.error(
-            "Please enter the course/subject name."
-        )
-        st.stop()
 
-    if not course_content.strip():
         st.error(
-            "Please enter course content."
+            "Please enter the course / subject name."
         )
-        st.stop()
 
-    if not clos:
+    elif not clos:
+
         st.error(
             "Please enter at least one CLO."
         )
-        st.stop()
 
-    if not plos:
+    elif not plos:
+
         st.error(
             "Please enter at least one PLO."
         )
-        st.stop()
 
-    if not questions:
-        st.error(
-            "Please upload an assessment or enter a question manually."
-        )
-        st.stop()
+    else:
 
-    results = []
+        questions = []
 
-    progress = st.progress(0)
+        # Manual question
+        if manual_question.strip():
 
-    for index, question in enumerate(
-        questions
-    ):
+            questions.append(
+                finalize_question(
+                    manual_question
+                )
+            )
 
-        result = evaluate_question(
-            question,
-            course_name,
-            course_content,
-            clos,
-            plos,
-            target_bloom
-        )
+        # Uploaded file questions
+        if st.session_state.uploaded_text:
 
-        results.append(result)
+            extracted = extract_questions(
+                st.session_state.uploaded_text
+            )
 
-        progress.progress(
-            (index + 1) / len(questions)
-        )
+            questions.extend(
+                extracted
+            )
 
-    progress.empty()
+        # Remove duplicates
+        unique_questions = []
 
-    st.session_state.results = results
+        seen = set()
 
-    # Clear old revisions.
-    st.session_state.revisions = {}
+        for q in questions:
 
-    st.success(
-        f"Evaluation completed for {len(results)} question(s)."
-    )
+            key = normalize(q)
+
+            if key not in seen:
+
+                seen.add(key)
+
+                unique_questions.append(q)
+
+        if not unique_questions:
+
+            st.warning(
+                "No assessment questions could be detected. "
+                "Enter a question manually or upload a readable assessment file."
+            )
+
+        else:
+
+            results = []
+
+            for index, question in enumerate(
+                unique_questions,
+                start=1
+            ):
+
+                result = evaluate_question(
+                    question,
+                    course_name,
+                    course_content,
+                    clos,
+                    plos,
+                    target_bloom
+                )
+
+                result["number"] = index
+
+                results.append(
+                    result
+                )
+
+            st.session_state.evaluation_results = results
+            st.session_state.revision_results = {}
+            st.session_state.selected_revisions = {}
+
+            st.success(
+                f"{len(results)} question(s) evaluated successfully."
+            )
 
 
 # ============================================================
 # RESULTS
 # ============================================================
 
-if st.session_state.results:
+results = st.session_state.evaluation_results
 
-    st.markdown("---")
+if results:
 
-    st.header(
-        "📊 Question-by-Question Evaluation"
-    )
+    st.divider()
 
-    # ========================================================
-    # SUMMARY TABLE
-    # ========================================================
+    st.header("📊 Assessment Evaluation")
 
-    summary = []
+    # --------------------------------------------------------
+    # SUMMARY
+    # --------------------------------------------------------
 
-    for i, result in enumerate(
-        st.session_state.results,
-        1
-    ):
+    summary_rows = []
 
-        summary.append({
-            "Question": f"Q{i}",
-            "Overall": result["overall"],
-            "Subject": result["subject"],
-            "CLO": result["clo"],
-            "PLO": result["plo"],
-            "Bloom": result["bloom"],
-            "Specificity": result["specificity"],
-            "Quality": result["quality"],
-            "Status": result["status"]
+    for result in results:
+
+        summary_rows.append({
+            "Question": result["number"],
+            "Score": result["overall_score"],
+            "CLO": result["clo_score"],
+            "PLO": result["plo_score"],
+            "Bloom": result["bloom_score"],
+            "Subject": result["subject_score"],
+            "Status": (
+                "🟢 Attained"
+                if result["alignment_attained"]
+                else "🔴 Not Attained"
+            )
         })
 
     summary_df = pd.DataFrame(
-        summary
+        summary_rows
     )
 
     st.dataframe(
@@ -2113,377 +1786,576 @@ if st.session_state.results:
         hide_index=True
     )
 
-    # ========================================================
+    # --------------------------------------------------------
     # INDIVIDUAL QUESTIONS
-    # ========================================================
+    # --------------------------------------------------------
 
-    for index, result in enumerate(
-        st.session_state.results
-    ):
+    for result in results:
 
-        number = index + 1
+        number = result["number"]
+
+        status_text = (
+            "🟢 ALIGNMENT ATTAINED"
+            if result["alignment_attained"]
+            else "🔴 ALIGNMENT NOT ATTAINED"
+        )
 
         with st.expander(
-            f"Q{number} — "
-            f"{result['status']} — "
-            f"{result['overall']:.1f}/100"
+            f"Question {number} — "
+            f"{result['overall_score']:.1f}/100 — "
+            f"{status_text}"
         ):
 
             st.markdown(
-                "### Original Question"
+                f"**Question:** {result['question']}"
             )
 
             st.write(
-                result["question"]
+                f"**Matched CLO:** {result['best_clo']}"
             )
 
-            st.markdown(
-                "### Original Scores"
+            st.write(
+                f"**Matched PLO:** {result['best_plo']}"
             )
 
-            show_scores(
-                result
+            st.write(
+                f"**Detected Bloom Level:** "
+                f"{result['detected_bloom']}"
             )
 
-            st.markdown(
-                "### Alignment Evidence"
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.metric(
+                    "Overall Score",
+                    f"{result['overall_score']:.1f}/100"
+                )
+
+            with col2:
+                st.metric(
+                    "CLO",
+                    f"{result['clo_score']:.1f}/100"
+                )
+
+            with col3:
+                st.metric(
+                    "PLO",
+                    f"{result['plo_score']:.1f}/100"
+                )
+
+            col4, col5, col6 = st.columns(3)
+
+            with col4:
+                st.metric(
+                    "Bloom",
+                    f"{result['bloom_score']:.1f}/100"
+                )
+
+            with col5:
+                st.metric(
+                    "Subject",
+                    f"{result['subject_score']:.1f}/100"
+                )
+
+            with col6:
+                st.metric(
+                    "Specificity",
+                    f"{result['specificity_score']:.1f}/100"
+                )
+
+            st.write(
+                f"**Question Quality:** "
+                f"{result['quality_score']:.1f}/100"
             )
 
-            ec1, ec2 = st.columns(2)
+            st.divider()
 
-            with ec1:
+            if result["alignment_attained"]:
 
-                st.write(
-                    "**Matched CLO:**"
+                st.success(
+                    "✓ Alignment Attained"
+                )
+
+            else:
+
+                st.warning(
+                    "Alignment not attained. "
+                    "A revision is required."
+                )
+
+            # ------------------------------------------------
+            # REVISION BUTTON
+            # ------------------------------------------------
+
+            button_key = (
+                f"revision_{number}"
+            )
+
+            if st.button(
+                "🛠 Generate Tool Suggestions",
+                key=button_key
+            ):
+
+                revisions = create_revision(
+                    result["question"],
+                    course_name,
+                    course_content,
+                    clos,
+                    plos,
+                    target_bloom
+                )
+
+                st.session_state.revision_results[
+                    number
+                ] = revisions
+
+                st.session_state.selected_revisions.pop(
+                    number,
+                    None
+                )
+
+            # ------------------------------------------------
+            # REVISION SUGGESTIONS
+            # ------------------------------------------------
+
+            revisions = st.session_state.revision_results.get(
+                number,
+                []
+            )
+
+            if revisions:
+
+                st.markdown(
+                    "### 🛠 Tool Suggestions"
                 )
 
                 st.info(
-                    result["matched_clo"]
+                    "Each suggestion below has been evaluated "
+                    "independently. CLO and PLO must both reach "
+                    "80% or higher before the suggestion is "
+                    "considered attained."
                 )
 
-            with ec2:
+                suggestion_labels = []
 
-                st.write(
-                    "**Matched PLO:**"
-                )
-
-                st.info(
-                    result["matched_plo"]
-                )
-
-            st.write(
-                f"**Detected Bloom:** "
-                f"{result['actual_bloom']}"
-            )
-
-            st.write(
-                f"**Target Bloom:** "
-                f"{result['target_bloom']}"
-            )
-
-            # =================================================
-            # REVISION
-            # =================================================
-
-            st.markdown("---")
-
-            st.markdown(
-                "### 🔧 Revision"
-            )
-
-            revision_key = f"revision_{index}"
-
-            generate = st.button(
-                "Generate Validated Revision",
-                key=f"generate_revision_{index}"
-            )
-
-            if generate:
-
-                with st.spinner(
-                    "Generating multiple revisions and testing each one..."
+                for i, item in enumerate(
+                    revisions
                 ):
 
-                    revision = create_revision(
-                        result["question"],
-                        course_name,
-                        course_content,
-                        clos,
-                        plos,
-                        target_bloom
-                    )
+                    r = item["result"]
 
-                st.session_state.revisions[
-                    revision_key
-                ] = revision
+                    if item["attained"]:
 
-            # =================================================
-            # SHOW REVISION
-            # =================================================
-
-            if revision_key in st.session_state.revisions:
-
-                revision = st.session_state.revisions[
-                    revision_key
-                ]
-
-                if revision["question"]:
-
-                    if revision["attained"]:
-
-                        st.success(
-                            "🎯 ALIGNMENT ACHIEVED AFTER REVISION"
+                        label = (
+                            f"Suggestion {i + 1} — "
+                            f"🟢 Attained — "
+                            f"{r['overall_score']:.1f}/100 | "
+                            f"CLO {r['clo_score']:.1f} | "
+                            f"PLO {r['plo_score']:.1f}"
                         )
 
                     else:
 
-                        st.warning(
-                            revision["message"]
+                        label = (
+                            f"Suggestion {i + 1} — "
+                            f"🔴 Not Attained — "
+                            f"{r['overall_score']:.1f}/100 | "
+                            f"CLO {r['clo_score']:.1f} | "
+                            f"PLO {r['plo_score']:.1f}"
                         )
+
+                    suggestion_labels.append(
+                        label
+                    )
+
+                selected_index = st.radio(
+                    "Select a revision suggestion",
+                    range(len(revisions)),
+                    format_func=lambda i:
+                        suggestion_labels[i],
+                    key=f"radio_{number}"
+                )
+
+                selected_item = revisions[
+                    selected_index
+                ]
+
+                selected_result = selected_item[
+                    "result"
+                ]
+
+                st.markdown(
+                    "#### Selected Revision"
+                )
+
+                st.info(
+                    selected_item["question"]
+                )
+
+                # --------------------------------------------
+                # SELECTED REVISION METRICS
+                # --------------------------------------------
+
+                c1, c2, c3, c4 = st.columns(4)
+
+                with c1:
+                    st.metric(
+                        "Revised Score",
+                        f"{selected_result['overall_score']:.1f}/100"
+                    )
+
+                with c2:
+                    st.metric(
+                        "CLO",
+                        f"{selected_result['clo_score']:.1f}/100"
+                    )
+
+                with c3:
+                    st.metric(
+                        "PLO",
+                        f"{selected_result['plo_score']:.1f}/100"
+                    )
+
+                with c4:
+                    st.metric(
+                        "Bloom",
+                        f"{selected_result['bloom_score']:.1f}/100"
+                    )
+
+                # --------------------------------------------
+                # ATTAINMENT CHECK
+                # --------------------------------------------
+
+                if revision_attained(
+                    selected_result
+                ):
+
+                    st.success(
+                        f"✓ Alignment Attained — "
+                        f"Revised Score: "
+                        f"{selected_result['overall_score']:.1f}/100"
+                    )
 
                     st.markdown(
-                        "#### Revised Question"
-                    )
+                        f"""
+**Alignment Status:** 🟢 **ATTAINED**
 
-                    revised_question = finalize_question(
-                        revision["question"]
-                    )
-
-                    st.write(
-                        revised_question
-                    )
-
-                    if revision["result"]:
-
-                        revised_result = revision[
-                            "result"
-                        ]
-
-                        st.markdown(
-                            "#### Revised Scores"
-                        )
-
-                        show_scores(
-                            revised_result
-                        )
-
-                        # =====================================
-                        # DIRECT COMPARISON
-                        # =====================================
-
-                        st.markdown(
-                            "#### Before vs After"
-                        )
-
-                        comparison = pd.DataFrame([
-                            {
-                                "Metric": "Overall",
-                                "Before": result["overall"],
-                                "After": revised_result["overall"],
-                                "Change": round(
-                                    revised_result["overall"]
-                                    - result["overall"],
-                                    1
-                                )
-                            },
-                            {
-                                "Metric": "Subject",
-                                "Before": result["subject"],
-                                "After": revised_result["subject"],
-                                "Change": round(
-                                    revised_result["subject"]
-                                    - result["subject"],
-                                    1
-                                )
-                            },
-                            {
-                                "Metric": "CLO",
-                                "Before": result["clo"],
-                                "After": revised_result["clo"],
-                                "Change": round(
-                                    revised_result["clo"]
-                                    - result["clo"],
-                                    1
-                                )
-                            },
-                            {
-                                "Metric": "PLO",
-                                "Before": result["plo"],
-                                "After": revised_result["plo"],
-                                "Change": round(
-                                    revised_result["plo"]
-                                    - result["plo"],
-                                    1
-                                )
-                            },
-                            {
-                                "Metric": "Bloom",
-                                "Before": result["bloom"],
-                                "After": revised_result["bloom"],
-                                "Change": round(
-                                    revised_result["bloom"]
-                                    - result["bloom"],
-                                    1
-                                )
-                            },
-                            {
-                                "Metric": "Specificity",
-                                "Before": result["specificity"],
-                                "After": revised_result["specificity"],
-                                "Change": round(
-                                    revised_result["specificity"]
-                                    - result["specificity"],
-                                    1
-                                )
-                            },
-                            {
-                                "Metric": "Quality",
-                                "Before": result["quality"],
-                                "After": revised_result["quality"],
-                                "Change": round(
-                                    revised_result["quality"]
-                                    - result["quality"],
-                                    1
-                                )
-                            }
-                        ])
-
-                        st.dataframe(
-                            comparison,
-                            use_container_width=True,
-                            hide_index=True
-                        )
-
-                        # =====================================
-                        # FINAL VALIDATION
-                        # =====================================
-
-                        if revision["attained"]:
-
-                            st.success(
-                                "✅ This revision passed the strict "
-                                "80% validation criteria."
-                            )
-
-                            st.markdown(
-                                f"""
-**Overall:** {revised_result['overall']:.1f}/100  
-**Subject:** {revised_result['subject']:.1f}/100  
-**CLO:** {revised_result['clo']:.1f}/100  
-**PLO:** {revised_result['plo']:.1f}/100  
-**Bloom:** {revised_result['bloom']:.1f}/100
+- **Overall Alignment:** {selected_result['overall_score']:.1f}/100
+- **CLO Alignment:** {selected_result['clo_score']:.1f}/100 — **Attained**
+- **PLO Alignment:** {selected_result['plo_score']:.1f}/100 — **Attained**
+- **Bloom Alignment:** {selected_result['bloom_score']:.1f}/100 — **Attained**
+- **Subject Relevance:** {selected_result['subject_score']:.1f}/100 — **Attained**
 """
-                            )
+                    )
 
-                        else:
+                    if st.button(
+                        "✅ Apply This Revision",
+                        key=f"apply_{number}"
+                    ):
 
-                            failed = []
+                        st.session_state.selected_revisions[
+                            number
+                        ] = selected_item
 
-                            if revised_result["overall"] < 80:
-                                failed.append(
-                                    f"Overall {revised_result['overall']:.1f}"
-                                )
-
-                            if revised_result["subject"] < 80:
-                                failed.append(
-                                    f"Subject {revised_result['subject']:.1f}"
-                                )
-
-                            if revised_result["clo"] < 80:
-                                failed.append(
-                                    f"CLO {revised_result['clo']:.1f}"
-                                )
-
-                            if revised_result["plo"] < 80:
-                                failed.append(
-                                    f"PLO {revised_result['plo']:.1f}"
-                                )
-
-                            if revised_result["bloom"] < 80:
-                                failed.append(
-                                    f"Bloom {revised_result['bloom']:.1f}"
-                                )
-
-                            st.error(
-                                "The revision was not falsely marked as "
-                                "attained. Metrics below 80: "
-                                + ", ".join(failed)
-                            )
+                        st.success(
+                            "Revision applied successfully. "
+                            "The selected question has attained "
+                            "CLO and PLO alignment."
+                        )
 
                 else:
 
                     st.error(
-                        revision["message"]
+                        "🔴 Alignment Not Attained"
                     )
+
+                    st.warning(
+                        "This suggestion cannot be marked as attained "
+                        "because one or more required dimensions are "
+                        "below 80%. Select a suggestion marked "
+                        "🟢 Attained."
+                    )
+
+                    # Show exactly why it failed
+                    failed_items = []
+
+                    if selected_result[
+                        "overall_score"
+                    ] < 80:
+                        failed_items.append(
+                            f"Overall: {selected_result['overall_score']:.1f}"
+                        )
+
+                    if selected_result[
+                        "clo_score"
+                    ] < 80:
+                        failed_items.append(
+                            f"CLO: {selected_result['clo_score']:.1f}"
+                        )
+
+                    if selected_result[
+                        "plo_score"
+                    ] < 80:
+                        failed_items.append(
+                            f"PLO: {selected_result['plo_score']:.1f}"
+                        )
+
+                    if selected_result[
+                        "bloom_score"
+                    ] < 80:
+                        failed_items.append(
+                            f"Bloom: {selected_result['bloom_score']:.1f}"
+                        )
+
+                    if selected_result[
+                        "subject_score"
+                    ] < 80:
+                        failed_items.append(
+                            f"Subject: {selected_result['subject_score']:.1f}"
+                        )
+
+                    if failed_items:
+
+                        st.write(
+                            "**Dimensions below the attainment "
+                            "threshold:** "
+                            + " | ".join(
+                                failed_items
+                            )
+                        )
+
+            # ------------------------------------------------
+            # APPLIED REVISION
+            # ------------------------------------------------
+
+            applied = st.session_state.selected_revisions.get(
+                number
+            )
+
+            if applied:
+
+                st.divider()
+
+                st.markdown(
+                    "### ✅ Applied Revision"
+                )
+
+                st.success(
+                    applied["question"]
+                )
+
+                applied_result = applied[
+                    "result"
+                ]
+
+                st.success(
+                    f"✓ Alignment Attained — "
+                    f"Revised Score: "
+                    f"{applied_result['overall_score']:.1f}/100"
+                )
+
+                cols = st.columns(5)
+
+                metrics = [
+                    (
+                        "Overall",
+                        applied_result["overall_score"]
+                    ),
+                    (
+                        "CLO",
+                        applied_result["clo_score"]
+                    ),
+                    (
+                        "PLO",
+                        applied_result["plo_score"]
+                    ),
+                    (
+                        "Bloom",
+                        applied_result["bloom_score"]
+                    ),
+                    (
+                        "Subject",
+                        applied_result["subject_score"]
+                    )
+                ]
+
+                for col, (
+                    label,
+                    value
+                ) in zip(
+                    cols,
+                    metrics
+                ):
+
+                    with col:
+
+                        st.metric(
+                            label,
+                            f"{value:.1f}/100"
+                        )
+
+
+    # ========================================================
+    # BEFORE / AFTER COMPARISON
+    # ========================================================
+
+    if st.session_state.selected_revisions:
+
+        st.divider()
+
+        st.header(
+            "📈 Before vs After Revision"
+        )
+
+        comparison_rows = []
+
+        for result in results:
+
+            number = result["number"]
+
+            if number not in st.session_state.selected_revisions:
+                continue
+
+            applied = st.session_state.selected_revisions[
+                number
+            ]
+
+            after = applied["result"]
+
+            comparison_rows.append({
+                "Question": number,
+
+                "Original Score":
+                    result["overall_score"],
+
+                "Revised Score":
+                    after["overall_score"],
+
+                "Original CLO":
+                    result["clo_score"],
+
+                "Revised CLO":
+                    after["clo_score"],
+
+                "Original PLO":
+                    result["plo_score"],
+
+                "Revised PLO":
+                    after["plo_score"],
+
+                "Original Bloom":
+                    result["bloom_score"],
+
+                "Revised Bloom":
+                    after["bloom_score"],
+
+                "Original Subject":
+                    result["subject_score"],
+
+                "Revised Subject":
+                    after["subject_score"],
+
+                "Final Status":
+                    "🟢 Alignment Attained"
+            })
+
+        if comparison_rows:
+
+            comparison_df = pd.DataFrame(
+                comparison_rows
+            )
+
+            st.dataframe(
+                comparison_df,
+                use_container_width=True,
+                hide_index=True
+            )
 
 
 # ============================================================
 # EXPORT
 # ============================================================
 
-if st.session_state.results:
+if results:
 
-    st.markdown("---")
+    st.divider()
 
-    st.header(
-        "📥 Export Results"
-    )
+    st.header("📥 Export Results")
 
     export_rows = []
 
-    for index, original in enumerate(
-        st.session_state.results
-    ):
-
-        revision = st.session_state.revisions.get(
-            f"revision_{index}"
-        )
+    for result in results:
 
         row = {
-            "Question": f"Q{index + 1}",
-            "Original Question": original["question"],
-            "Original Overall": original["overall"],
-            "Original Subject": original["subject"],
-            "Original CLO": original["clo"],
-            "Original PLO": original["plo"],
-            "Original Bloom": original["bloom"],
-            "Original Specificity": original["specificity"],
-            "Original Quality": original["quality"],
-            "Original Status": original["status"],
-            "Revised Question": "",
-            "Revised Overall": "",
-            "Revised Subject": "",
-            "Revised CLO": "",
-            "Revised PLO": "",
-            "Revised Bloom": "",
-            "Revised Specificity": "",
-            "Revised Quality": "",
-            "Revision Attained": ""
+            "Question No":
+                result["number"],
+
+            "Original Question":
+                result["question"],
+
+            "Original Score":
+                result["overall_score"],
+
+            "Original CLO Score":
+                result["clo_score"],
+
+            "Original PLO Score":
+                result["plo_score"],
+
+            "Original Bloom Score":
+                result["bloom_score"],
+
+            "Original Subject Score":
+                result["subject_score"],
+
+            "Original Specificity":
+                result["specificity_score"],
+
+            "Original Quality":
+                result["quality_score"],
+
+            "Original Status":
+                "Attained"
+                if result["alignment_attained"]
+                else "Not Attained"
         }
 
-        if revision and revision.get(
-            "result"
-        ):
+        applied = st.session_state.selected_revisions.get(
+            result["number"]
+        )
 
-            rr = revision["result"]
+        if applied:
 
-            row["Revised Question"] = finalize_question(
-                revision["question"]
-            )
+            revised = applied["result"]
 
-            row["Revised Overall"] = rr["overall"]
-            row["Revised Subject"] = rr["subject"]
-            row["Revised CLO"] = rr["clo"]
-            row["Revised PLO"] = rr["plo"]
-            row["Revised Bloom"] = rr["bloom"]
-            row["Revised Specificity"] = rr["specificity"]
-            row["Revised Quality"] = rr["quality"]
+            row.update({
+                "Revised Question":
+                    applied["question"],
 
-            row["Revision Attained"] = (
-                "YES"
-                if revision["attained"]
-                else "NO"
-            )
+                "Revised Score":
+                    revised["overall_score"],
+
+                "Revised CLO Score":
+                    revised["clo_score"],
+
+                "Revised PLO Score":
+                    revised["plo_score"],
+
+                "Revised Bloom Score":
+                    revised["bloom_score"],
+
+                "Revised Subject Score":
+                    revised["subject_score"],
+
+                "Revised Specificity":
+                    revised["specificity_score"],
+
+                "Revised Quality":
+                    revised["quality_score"],
+
+                "Final Status":
+                    "Alignment Attained"
+            })
 
         export_rows.append(
             row
@@ -2493,14 +2365,14 @@ if st.session_state.results:
         export_rows
     )
 
-    csv_bytes = export_df.to_csv(
+    csv_data = export_df.to_csv(
         index=False
     ).encode("utf-8")
 
     st.download_button(
-        "⬇️ Download Evaluation Report",
-        data=csv_bytes,
-        file_name="OBE_Alignment_Evaluation.csv",
+        "⬇️ Download Evaluation Results",
+        data=csv_data,
+        file_name="OBE_Assessment_Alignment_Results.csv",
         mime="text/csv",
         use_container_width=True
     )
@@ -2510,9 +2382,10 @@ if st.session_state.results:
 # FOOTER
 # ============================================================
 
-st.markdown("---")
+st.divider()
 
 st.caption(
-    "OBE Assessment Alignment Checker — "
-    "Question-specific evidence-based scoring"
+    "OBE Assessment Alignment Checker | "
+    "Scores are calculated separately for each question. "
+    "CLO and PLO attainment require a score of 80 or above."
 )
