@@ -31,15 +31,6 @@ METRICS = [
     "Measurability"
 ]
 
-BLOOM_LEVELS = [
-    "Remember",
-    "Understand",
-    "Apply",
-    "Analyze",
-    "Evaluate",
-    "Create"
-]
-
 BLOOM_VERBS = {
     "Remember": [
         "define", "identify", "list", "name",
@@ -131,20 +122,6 @@ st.markdown(
         color: #666;
         margin-bottom: 20px;
     }
-
-    .score-box {
-        border: 1px solid #dddddd;
-        border-radius: 12px;
-        padding: 18px;
-        background: white;
-        text-align: center;
-        margin-bottom: 10px;
-    }
-
-    .score-number {
-        font-size: 2rem;
-        font-weight: 800;
-    }
     </style>
     """,
     unsafe_allow_html=True
@@ -152,7 +129,7 @@ st.markdown(
 
 
 # ============================================================
-# TEXT FUNCTIONS
+# TEXT HELPERS
 # ============================================================
 
 def clean_text(text):
@@ -163,6 +140,13 @@ def clean_text(text):
     text = str(text)
     text = text.replace("\x00", " ")
     text = text.replace("\r", "\n")
+
+    # Normalize common PDF / Word symbols
+    text = text.replace("»", " » ")
+    text = text.replace("•", " ")
+    text = text.replace("–", "-")
+    text = text.replace("—", "-")
+
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)
 
@@ -236,502 +220,273 @@ def similarity(a, b):
 
 
 # ============================================================
-# PDF READER
+# DOCUMENT HEADER / METADATA DETECTION
 # ============================================================
 
-def read_pdf(uploaded_file):
-
-    raw = uploaded_file.getvalue()
-
-    if not raw:
-        return ""
-
-    # --------------------------------------------------------
-    # PyMuPDF
-    # --------------------------------------------------------
-
-    try:
-
-        import fitz
-
-        pdf = fitz.open(
-            stream=raw,
-            filetype="pdf"
-        )
-
-        pages = []
-
-        for page_number in range(
-            len(pdf)
-        ):
-
-            try:
-
-                page = pdf.load_page(
-                    page_number
-                )
-
-                text = page.get_text(
-                    "text",
-                    sort=True
-                )
-
-                if text:
-                    pages.append(text)
-
-            except Exception:
-                continue
-
-        pdf.close()
-
-        combined = clean_text(
-            "\n".join(pages)
-        )
-
-        if len(combined) >= 20:
-            return combined
-
-    except Exception:
-        pass
-
-
-    # --------------------------------------------------------
-    # pypdf
-    # --------------------------------------------------------
-
-    try:
-
-        from pypdf import PdfReader
-
-        reader = PdfReader(
-            io.BytesIO(raw)
-        )
-
-        pages = []
-
-        for page in reader.pages:
-
-            try:
-
-                text = page.extract_text()
-
-                if text:
-                    pages.append(text)
-
-            except Exception:
-                continue
-
-        combined = clean_text(
-            "\n".join(pages)
-        )
-
-        if len(combined) >= 20:
-            return combined
-
-    except Exception:
-        pass
-
-
-    # --------------------------------------------------------
-    # pdfplumber
-    # --------------------------------------------------------
-
-    try:
-
-        import pdfplumber
-
-        pages = []
-
-        with pdfplumber.open(
-            io.BytesIO(raw)
-        ) as pdf:
-
-            for page in pdf.pages:
-
-                try:
-
-                    text = page.extract_text(
-                        x_tolerance=2,
-                        y_tolerance=3
-                    )
-
-                    if text:
-                        pages.append(text)
-
-                except Exception:
-                    continue
-
-        combined = clean_text(
-            "\n".join(pages)
-        )
-
-        if len(combined) >= 20:
-            return combined
-
-    except Exception:
-        pass
-
-
-    # --------------------------------------------------------
-    # OCR
-    # --------------------------------------------------------
-
-    try:
-
-        import fitz
-        import pytesseract
-        from PIL import Image
-
-        pdf = fitz.open(
-            stream=raw,
-            filetype="pdf"
-        )
-
-        pages = []
-
-        for page_number in range(
-            len(pdf)
-        ):
-
-            try:
-
-                page = pdf.load_page(
-                    page_number
-                )
-
-                pix = page.get_pixmap(
-                    matrix=fitz.Matrix(
-                        2.0,
-                        2.0
-                    ),
-                    alpha=False
-                )
-
-                image_bytes = pix.tobytes(
-                    "png"
-                )
-
-                image = Image.open(
-                    io.BytesIO(image_bytes)
-                )
-
-                text = pytesseract.image_to_string(
-                    image,
-                    config="--psm 6"
-                )
-
-                if text:
-                    pages.append(text)
-
-            except Exception:
-                continue
-
-        pdf.close()
-
-        combined = clean_text(
-            "\n".join(pages)
-        )
-
-        if len(combined) >= 20:
-            return combined
-
-    except Exception:
-        pass
-
-    return ""
-
-
-# ============================================================
-# DOCX READER
-# ============================================================
-
-def read_docx(uploaded_file):
-
-    try:
-
-        from docx import Document
-
-        document = Document(
-            io.BytesIO(
-                uploaded_file.getvalue()
-            )
-        )
-
-        parts = []
-
-        for paragraph in document.paragraphs:
-
-            if paragraph.text.strip():
-
-                parts.append(
-                    paragraph.text
-                )
-
-        for table in document.tables:
-
-            for row in table.rows:
-
-                row_text = []
-
-                for cell in row.cells:
-
-                    row_text.append(
-                        cell.text
-                    )
-
-                parts.append(
-                    " ".join(row_text)
-                )
-
-        return clean_text(
-            "\n".join(parts)
-        )
-
-    except Exception:
-        return ""
-
-
-# ============================================================
-# PPTX READER
-# ============================================================
-
-def read_pptx(uploaded_file):
-
-    try:
-
-        from pptx import Presentation
-
-        presentation = Presentation(
-            io.BytesIO(
-                uploaded_file.getvalue()
-            )
-        )
-
-        parts = []
-
-        for slide in presentation.slides:
-
-            for shape in slide.shapes:
-
-                if hasattr(
-                    shape,
-                    "text"
-                ):
-
-                    if shape.text.strip():
-
-                        parts.append(
-                            shape.text
-                        )
-
-        return clean_text(
-            "\n".join(parts)
-        )
-
-    except Exception:
-        return ""
-
-
-# ============================================================
-# EXCEL READER
-# ============================================================
-
-def read_excel(uploaded_file):
-
-    try:
-
-        raw = uploaded_file.getvalue()
-
-        excel = pd.ExcelFile(
-            io.BytesIO(raw)
-        )
-
-        parts = []
-
-        for sheet in excel.sheet_names:
-
-            dataframe = pd.read_excel(
-                io.BytesIO(raw),
-                sheet_name=sheet
-            )
-
-            dataframe = dataframe.fillna("")
-
-            for row in dataframe.astype(
-                str
-            ).values.tolist():
-
-                parts.append(
-                    " ".join(row)
-                )
-
-        return clean_text(
-            "\n".join(parts)
-        )
-
-    except Exception:
-        return ""
-
-
-# ============================================================
-# CSV READER
-# ============================================================
-
-def read_csv(uploaded_file):
-
-    try:
-
-        dataframe = pd.read_csv(
-            io.BytesIO(
-                uploaded_file.getvalue()
-            )
-        )
-
-        dataframe = dataframe.fillna("")
-
-        parts = []
-
-        for row in dataframe.astype(
-            str
-        ).values.tolist():
-
-            parts.append(
-                " ".join(row)
-            )
-
-        return clean_text(
-            "\n".join(parts)
-        )
-
-    except Exception:
-        return ""
-
-
-# ============================================================
-# TEXT READER
-# ============================================================
-
-def read_text_file(uploaded_file):
-
-    try:
-
-        return clean_text(
-            uploaded_file.getvalue().decode(
-                "utf-8",
-                errors="ignore"
-            )
-        )
-
-    except Exception:
-        return ""
-
-
-# ============================================================
-# IMAGE OCR
-# ============================================================
-
-def read_image(uploaded_file):
-
-    try:
-
-        from PIL import Image
-        import pytesseract
-
-        image = Image.open(
-            io.BytesIO(
-                uploaded_file.getvalue()
-            )
-        )
-
-        text = pytesseract.image_to_string(
-            image
-        )
-
-        return clean_text(text)
-
-    except Exception:
-        return ""
-
-
-# ============================================================
-# UNIVERSAL FILE READER
-# ============================================================
-
-def read_uploaded_file(
-    uploaded_file
-):
-
-    filename = uploaded_file.name.lower()
-
-    if filename.endswith(".pdf"):
-        return read_pdf(
-            uploaded_file
-        )
-
-    if filename.endswith(".docx"):
-        return read_docx(
-            uploaded_file
-        )
-
-    if filename.endswith(".pptx"):
-        return read_pptx(
-            uploaded_file
-        )
-
-    if filename.endswith(
-        (
-            ".xlsx",
-            ".xls",
-            ".xlsm"
-        )
-    ):
-        return read_excel(
-            uploaded_file
-        )
-
-    if filename.endswith(".csv"):
-        return read_csv(
-            uploaded_file
-        )
-
-    if filename.endswith(
-        (
-            ".txt",
-            ".md",
-            ".rtf"
-        )
-    ):
-        return read_text_file(
-            uploaded_file
-        )
-
-    if filename.endswith(
-        (
-            ".png",
-            ".jpg",
-            ".jpeg",
-            ".webp",
-            ".bmp"
-        )
-    ):
-        return read_image(
-            uploaded_file
-        )
-
-    return ""
-
-
-# ============================================================
-# HEADINGS / LABEL FILTER
-# ============================================================
-
-def is_heading_or_label(
-    text
-):
+def is_document_header_or_metadata(text):
+
+    """
+    IMPORTANT:
+    This function prevents titles, timestamps, platform names,
+    document metadata and QuestionWell headers from becoming
+    assessment questions.
+    """
 
     text = clean_text(text)
 
     if not text:
+        return True
+
+    normalized = normalize(text)
+
+    # --------------------------------------------------------
+    # Exact / common platform names
+    # --------------------------------------------------------
+
+    platform_terms = [
+        "questionwell",
+        "question well",
+        "kahoot",
+        "quizizz",
+        "google forms",
+        "microsoft forms",
+        "canvas",
+        "moodle",
+        "blackboard",
+        "turnitin",
+        "quizlet",
+        "chatgpt",
+        "openai"
+    ]
+
+    for term in platform_terms:
+
+        if term in normalized:
+            return True
+
+    # --------------------------------------------------------
+    # Timestamp / date headers
+    #
+    # Examples:
+    # 9/19/26, 5:27 AM General Chemistry » QuestionWell
+    # 09/19/2026 5:27 AM
+    # September 19, 2026, 5:27 AM
+    # 19 Sep 2026 05:27
+    # --------------------------------------------------------
+
+    date_pattern_1 = re.compile(
+        r"^\s*\d{1,2}\s*/\s*\d{1,2}\s*/\s*\d{2,4}"
+        r"(?:\s*[,|-]?\s*"
+        r"\d{1,2}:\d{2}"
+        r"(?:\s*[APap][Mm])?)?"
+    )
+
+    date_pattern_2 = re.compile(
+        r"^\s*(?:"
+        r"jan(?:uary)?|"
+        r"feb(?:ruary)?|"
+        r"mar(?:ch)?|"
+        r"apr(?:il)?|"
+        r"may|"
+        r"jun(?:e)?|"
+        r"jul(?:y)?|"
+        r"aug(?:ust)?|"
+        r"sep(?:tember)?|"
+        r"oct(?:ober)?|"
+        r"nov(?:ember)?|"
+        r"dec(?:ember)?"
+        r")\s+"
+        r"\d{1,2}"
+        r"(?:st|nd|rd|th)?"
+        r"(?:,|\s+)"
+        r"\d{4}"
+    )
+
+    date_pattern_3 = re.compile(
+        r"^\s*\d{1,2}\s+"
+        r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)"
+        r"[a-z]*\s+\d{4}",
+        flags=re.I
+    )
+
+    if date_pattern_1.search(text):
+        return True
+
+    if date_pattern_2.search(text):
+        return True
+
+    if date_pattern_3.search(text):
+        return True
+
+    # --------------------------------------------------------
+    # Time-only headers
+    # --------------------------------------------------------
+
+    if re.match(
+        r"^\s*\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)?\b",
+        text
+    ):
+        return True
+
+    # --------------------------------------------------------
+    # Browser / export style metadata
+    # --------------------------------------------------------
+
+    metadata_terms = [
+        "question set",
+        "question bank",
+        "assessment set",
+        "quiz set",
+        "generated questions",
+        "generated question set",
+        "exported from",
+        "created with",
+        "created by",
+        "generated by",
+        "downloaded from",
+        "document title",
+        "untitled document",
+        "page ",
+        "page 1",
+        "page 2",
+        "page 3",
+        "page 4",
+        "page 5"
+    ]
+
+    for term in metadata_terms:
+
+        if term in normalized:
+            return True
+
+    # --------------------------------------------------------
+    # Arrow / breadcrumb title
+    #
+    # Example:
+    # General Chemistry » QuestionWell
+    # --------------------------------------------------------
+
+    if "»" in text:
+
+        pieces = [
+            p.strip()
+            for p in text.split("»")
+            if p.strip()
+        ]
+
+        if len(pieces) >= 2:
+
+            # If the last item is a known platform,
+            # this is definitely a document header.
+            last_piece = normalize(
+                pieces[-1]
+            )
+
+            if last_piece in [
+                "questionwell",
+                "question well",
+                "kahoot",
+                "quizizz",
+                "quizlet",
+                "canvas",
+                "moodle"
+            ]:
+                return True
+
+            # Breadcrumb-like short labels
+            if all(
+                len(p.split()) <= 8
+                for p in pieces
+            ):
+                return True
+
+    # --------------------------------------------------------
+    # Common title forms
+    # --------------------------------------------------------
+
+    title_patterns = [
+
+        r"^general\s+chemistry\s+question\s+set$",
+        r"^chemistry\s+question\s+set$",
+        r"^general\s+chemistry$",
+        r"^chemistry\s+question\s+bank$",
+        r"^question\s+set$",
+        r"^question\s+bank$",
+        r"^assessment\s+question\s+set$",
+        r"^quiz\s+question\s+set$",
+        r"^test\s+question\s+set$",
+        r"^exam\s+question\s+set$",
+        r"^generated\s+question\s+set$",
+        r"^generated\s+questions?$"
+    ]
+
+    for pattern in title_patterns:
+
+        if re.fullmatch(
+            pattern,
+            normalized,
+            flags=re.I
+        ):
+            return True
+
+    # --------------------------------------------------------
+    # Very short title-like lines
+    # --------------------------------------------------------
+
+    words = normalized.split()
+
+    if len(words) <= 6:
+
+        title_words = [
+            "chemistry",
+            "physics",
+            "biology",
+            "mathematics",
+            "math",
+            "computer",
+            "science",
+            "programming",
+            "english",
+            "economics",
+            "accounting",
+            "management",
+            "question",
+            "questions",
+            "set",
+            "bank",
+            "assessment",
+            "quiz",
+            "test",
+            "exam"
+        ]
+
+        title_hits = sum(
+            1
+            for word in words
+            if word in title_words
+        )
+
+        if title_hits >= 2:
+            return True
+
+    return False
+
+
+# ============================================================
+# HEADINGS / LABELS
+# ============================================================
+
+def is_heading_or_label(text):
+
+    text = clean_text(text)
+
+    if not text:
+        return True
+
+    # First remove document metadata
+    if is_document_header_or_metadata(
+        text
+    ):
         return True
 
     normalized = normalize(text)
@@ -814,6 +569,7 @@ def is_heading_or_label(
         ):
             return True
 
+    # Label followed by colon/equal
     if re.match(
         r"^(clo|plo|bloom|marks?|points?|"
         r"topic|section|part|course|subject|"
@@ -828,21 +584,39 @@ def is_heading_or_label(
 
 
 # ============================================================
-# QUESTION CHECK
+# QUESTION VALIDATION
 # ============================================================
 
-def looks_like_actual_question(
-    text
-):
+def looks_like_actual_question(text):
 
     text = clean_text(text)
 
     if not text:
         return False
 
-    if is_heading_or_label(text):
+    # NEVER accept document headers
+    if is_document_header_or_metadata(
+        text
+    ):
         return False
 
+    if is_heading_or_label(
+        text
+    ):
+        return False
+
+    # Very short lines are almost always labels/headings
+    if len(text.split()) < 4:
+        return False
+
+    # Pure metadata patterns
+    if re.fullmatch(
+        r"[\d\s/:,\-]+",
+        text
+    ):
+        return False
+
+    # A real question can have a question mark
     if "?" in text:
         return True
 
@@ -878,7 +652,10 @@ def looks_like_actual_question(
         "differentiate",
         "examine",
         "critique",
-        "recommend"
+        "recommend",
+        "predict",
+        "identify",
+        "illustrate"
     ]
 
     normalized = normalize(text)
@@ -902,11 +679,14 @@ def clean_question_candidate(
     block
 ):
 
-    block = clean_text(block)
+    block = clean_text(
+        block
+    )
 
     if not block:
         return ""
 
+    # Remove answer key / rubric material
     block = re.split(
         r"\n\s*(Answer\s*Key|Answers?|"
         r"Marking\s*Scheme|Rubric)\s*:?",
@@ -915,6 +695,7 @@ def clean_question_candidate(
         flags=re.I
     )[0]
 
+    # Remove trailing marks
     block = re.sub(
         r"\s*\(\s*\d+\s*(marks?|points?)\s*\)\s*$",
         "",
@@ -933,6 +714,40 @@ def clean_question_candidate(
 
 
 # ============================================================
+# REMOVE DOCUMENT HEADER LINES BEFORE EXTRACTION
+# ============================================================
+
+def remove_header_lines(
+    text
+):
+
+    lines = text.splitlines()
+
+    cleaned_lines = []
+
+    for line in lines:
+
+        line = clean_text(line)
+
+        if not line:
+            continue
+
+        # Remove known document headers
+        if is_document_header_or_metadata(
+            line
+        ):
+            continue
+
+        cleaned_lines.append(
+            line
+        )
+
+    return "\n".join(
+        cleaned_lines
+    )
+
+
+# ============================================================
 # QUESTION EXTRACTION
 # ============================================================
 
@@ -940,14 +755,24 @@ def extract_questions(
     text
 ):
 
-    text = clean_text(text)
+    text = clean_text(
+        text
+    )
 
     if not text:
         return []
 
+    # Remove obvious page/document headers first
+    text = remove_header_lines(
+        text
+    )
+
     questions = []
 
-    # Numbered questions are authoritative.
+    # --------------------------------------------------------
+    # Numbered questions
+    # --------------------------------------------------------
+
     numbered_pattern = re.compile(
         r"(?im)^\s*"
         r"(?:Q(?:uestion)?\s*)?"
@@ -956,7 +781,9 @@ def extract_questions(
     )
 
     matches = list(
-        numbered_pattern.finditer(text)
+        numbered_pattern.finditer(
+            text
+        )
     )
 
     if matches:
@@ -968,10 +795,13 @@ def extract_questions(
             start = match.end()
 
             if i + 1 < len(matches):
+
                 end = matches[
                     i + 1
                 ].start()
+
             else:
+
                 end = len(text)
 
             block = text[
@@ -982,17 +812,27 @@ def extract_questions(
 
             for line in block.splitlines():
 
-                line = clean_text(line)
+                line = clean_text(
+                    line
+                )
 
                 if not line:
                     continue
 
+                # Do not include header/label lines
                 if is_heading_or_label(
                     line
                 ):
                     continue
 
-                lines.append(line)
+                if is_document_header_or_metadata(
+                    line
+                ):
+                    continue
+
+                lines.append(
+                    line
+                )
 
             block = clean_text(
                 "\n".join(lines)
@@ -1005,7 +845,14 @@ def extract_questions(
             if not block:
                 continue
 
-            if len(block.split()) < 3:
+            if len(
+                block.split()
+            ) < 4:
+                continue
+
+            if is_document_header_or_metadata(
+                block
+            ):
                 continue
 
             if is_heading_or_label(
@@ -1018,6 +865,7 @@ def extract_questions(
             ):
                 continue
 
+            # Remove duplicate questions
             duplicate = False
 
             for old in questions:
@@ -1031,6 +879,7 @@ def extract_questions(
                     break
 
             if not duplicate:
+
                 questions.append(
                     block
                 )
@@ -1039,7 +888,7 @@ def extract_questions(
 
 
     # --------------------------------------------------------
-    # Fallback for unnumbered assessments
+    # Fallback for unnumbered questions
     # --------------------------------------------------------
 
     blocks = re.split(
@@ -1056,7 +905,14 @@ def extract_questions(
         if not block:
             continue
 
-        if len(block.split()) < 3:
+        if len(
+            block.split()
+        ) < 4:
+            continue
+
+        if is_document_header_or_metadata(
+            block
+        ):
             continue
 
         if is_heading_or_label(
@@ -1082,6 +938,7 @@ def extract_questions(
                 break
 
         if not duplicate:
+
             questions.append(
                 block
             )
@@ -1097,7 +954,9 @@ def detect_question_type(
     question
 ):
 
-    q = normalize(question)
+    q = normalize(
+        question
+    )
 
     if re.search(
         r"\b(true or false|true false|t/f)\b",
@@ -1166,7 +1025,9 @@ def detect_bloom(
     question
 ):
 
-    q = normalize(question)
+    q = normalize(
+        question
+    )
 
     detected = []
 
@@ -1206,7 +1067,7 @@ def detect_bloom(
 
 
 # ============================================================
-# SCORING FUNCTIONS
+# SCORING
 # ============================================================
 
 def score_clo(
@@ -1432,7 +1293,6 @@ def score_measurability(
             r"\b" + re.escape(verb) + r"\b",
             q
         ):
-
             hits += 1
 
     if hits >= 2:
@@ -1448,7 +1308,7 @@ def score_measurability(
 
 
 # ============================================================
-# EVALUATE QUESTION
+# QUESTION EVALUATION
 # ============================================================
 
 def evaluate_question(
@@ -1576,7 +1436,7 @@ with st.sidebar:
     subject = st.text_input(
         "Subject",
         value=st.session_state.subject,
-        placeholder="e.g. Chemistry"
+        placeholder="e.g. General Chemistry"
     )
 
     course = st.text_input(
@@ -1671,7 +1531,7 @@ st.markdown(
 
 
 # ============================================================
-# RUN ANALYSIS
+# ANALYZE
 # ============================================================
 
 if analyze:
@@ -1718,7 +1578,6 @@ if analyze:
                 "The uploaded file could not be read. "
                 "Please check the file format or OCR requirements."
             )
-
             st.stop()
 
         questions = extract_questions(
@@ -1731,7 +1590,6 @@ if analyze:
                 "No assessment questions could be extracted. "
                 "Please check the file format and content."
             )
-
             st.stop()
 
         results = []
@@ -1759,12 +1617,14 @@ if analyze:
 
     st.success(
         f"Analysis complete — "
-        f"{len(questions)} actual assessment question(s) detected."
+        f"{len(questions)} actual assessment question(s) detected. "
+        f"Document headings, timestamps, platform names and labels "
+        f"were excluded."
     )
 
 
 # ============================================================
-# NO ANALYSIS YET
+# WAIT FOR ANALYSIS
 # ============================================================
 
 if not st.session_state.analysis_done:
@@ -1778,10 +1638,15 @@ if not st.session_state.analysis_done:
 
 
 # ============================================================
-# PREPARE RESULTS
+# RESULTS
 # ============================================================
 
 results = st.session_state.results
+
+
+# ============================================================
+# METRIC AVERAGES
+# ============================================================
 
 metric_averages = {}
 
@@ -1809,6 +1674,10 @@ for metric in METRICS:
         )
 
 
+# ============================================================
+# OVERALL SCORE
+# ============================================================
+
 all_scores = [
     result["overall"]
     for result in results
@@ -1828,7 +1697,7 @@ else:
 
 
 # ============================================================
-# OVERALL ALIGNMENT DASHBOARD
+# OVERALL ALIGNMENT
 # ============================================================
 
 st.markdown(
@@ -1839,16 +1708,14 @@ if overall_score >= ATTAINMENT_THRESHOLD:
 
     st.success(
         f"🟢 **Alignment Attained** — "
-        f"Overall Alignment Score: "
-        f"**{overall_score}/100**"
+        f"Overall Alignment Score: **{overall_score}/100**"
     )
 
 else:
 
     st.warning(
         f"🟠 **Revision Required** — "
-        f"Overall Alignment Score: "
-        f"**{overall_score}/100**"
+        f"Overall Alignment Score: **{overall_score}/100**"
     )
 
 
@@ -1899,9 +1766,9 @@ st.markdown(
 )
 
 st.caption(
-    f"Collective overview of all "
-    f"{len(results)} actual assessment questions. "
-    "Headings, labels and instructions are not counted."
+    f"{len(results)} actual assessment question(s) detected. "
+    "Document titles, timestamps, platform headings, section "
+    "headings, instructions and labels are excluded."
 )
 
 
@@ -1912,57 +1779,55 @@ for number, result in enumerate(
     start=1
 ):
 
-    row = {
-        "Question":
-            f"Q{number}",
-
-        "Question Type":
-            result["type"],
-
-        "Bloom Level":
-            result["bloom"],
-
-        "CLO":
-            result["metrics"][
-                "CLO Alignment"
-            ],
-
-        "PLO":
-            result["metrics"][
-                "PLO Alignment"
-            ],
-
-        "Bloom":
-            result["metrics"][
-                "Bloom Alignment"
-            ],
-
-        "Subject":
-            result["metrics"][
-                "Subject Relevance"
-            ],
-
-        "Clarity":
-            result["metrics"][
-                "Clarity"
-            ],
-
-        "Measurability":
-            result["metrics"][
-                "Measurability"
-            ],
-
-        "Overall":
-            result["overall"],
-
-        "Status":
-            get_status(
-                result["overall"]
-            )
-    }
-
     overview_rows.append(
-        row
+        {
+            "Question":
+                f"Q{number}",
+
+            "Question Type":
+                result["type"],
+
+            "Bloom Level":
+                result["bloom"],
+
+            "CLO":
+                result["metrics"][
+                    "CLO Alignment"
+                ],
+
+            "PLO":
+                result["metrics"][
+                    "PLO Alignment"
+                ],
+
+            "Bloom":
+                result["metrics"][
+                    "Bloom Alignment"
+                ],
+
+            "Subject":
+                result["metrics"][
+                    "Subject Relevance"
+                ],
+
+            "Clarity":
+                result["metrics"][
+                    "Clarity"
+                ],
+
+            "Measurability":
+                result["metrics"][
+                    "Measurability"
+                ],
+
+            "Overall":
+                result["overall"],
+
+            "Status":
+                get_status(
+                    result["overall"]
+                )
+        }
     )
 
 
@@ -1978,52 +1843,18 @@ st.dataframe(
 
 
 # ============================================================
-# QUESTION SCORE DISTRIBUTION
+# SINGLE GRAPHICAL REPRESENTATION
 # ============================================================
 
 st.markdown(
-    "### Question Score Overview"
+    "## 📈 Alignment Graph"
 )
 
-score_df = pd.DataFrame(
-    {
-        "Question": [
-            f"Q{i}"
-            for i in range(
-                1,
-                len(results) + 1
-            )
-        ],
-
-        "Overall Score": [
-            result["overall"]
-            for result in results
-        ]
-    }
-)
-
-st.bar_chart(
-    score_df.set_index(
-        "Question"
-    ),
-    y="Overall Score",
-    height=350
-)
-
-
-# ============================================================
-# ALIGNMENT GRAPH
-# ============================================================
-
-st.markdown(
-    "### Alignment Overview"
-)
-
-alignment_df = pd.DataFrame(
+chart_df = pd.DataFrame(
     {
         "Metric": METRICS,
 
-        "Average Score": [
+        "Score": [
             metric_averages.get(
                 metric,
                 0
@@ -2034,11 +1865,11 @@ alignment_df = pd.DataFrame(
 )
 
 st.bar_chart(
-    alignment_df.set_index(
+    chart_df.set_index(
         "Metric"
     ),
-    y="Average Score",
-    height=350
+    y="Score",
+    height=400
 )
 
 
@@ -2050,16 +1881,16 @@ st.markdown(
     "### Assessment Summary"
 )
 
-summary_col1, summary_col2, summary_col3 = st.columns(3)
+col1, col2, col3 = st.columns(3)
 
-with summary_col1:
+with col1:
 
     st.metric(
         "Total Questions",
         len(results)
     )
 
-with summary_col2:
+with col2:
 
     attained = sum(
         1
@@ -2072,9 +1903,9 @@ with summary_col2:
         attained
     )
 
-with summary_col3:
+with col3:
 
-    not_attained = sum(
+    revision = sum(
         1
         for result in results
         if result["overall"] < ATTAINMENT_THRESHOLD
@@ -2082,7 +1913,7 @@ with summary_col3:
 
     st.metric(
         "Questions Requiring Revision",
-        not_attained
+        revision
     )
 
 
