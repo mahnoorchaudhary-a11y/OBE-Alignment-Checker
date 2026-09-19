@@ -2,7 +2,9 @@ streamlit
 pandas
 PyMuPDF
 pypdf
+pdfplumber
 python-docx
+python-pptx
 openpyxl
-pytesseract
 Pillow
+pytesseract
