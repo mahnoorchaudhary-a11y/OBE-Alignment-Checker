@@ -6,12 +6,13 @@ from collections import Counter
 import pandas as pd
 import streamlit as st
 
+
 # ============================================================
 # OPTIONAL LIBRARIES
 # ============================================================
 
 try:
-    import fitz  # PyMuPDF
+    import fitz
 except Exception:
     fitz = None
 
@@ -55,6 +56,7 @@ BLOOM_LEVELS = [
     "Create"
 ]
 
+
 BLOOM_VERBS = {
     "Remember": [
         "define", "identify", "list", "name", "state",
@@ -92,6 +94,7 @@ BLOOM_VERBS = {
 # ============================================================
 
 DOMAIN_LEXICONS = {
+
     "Chemistry": [
         "atom", "molecule", "bond", "ionic", "covalent",
         "reaction", "acid", "base", "ph", "molarity",
@@ -236,12 +239,15 @@ DOMAIN_LEXICONS = {
 # ============================================================
 
 def clean_text(text):
+
     if text is None:
         return ""
 
     text = str(text)
+
     text = text.replace("\u00a0", " ")
     text = text.replace("\ufeff", "")
+
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
 
@@ -249,14 +255,26 @@ def clean_text(text):
 
 
 def normalize(text):
+
     text = clean_text(text).lower()
-    text = re.sub(r"[^a-z0-9\s]", " ", text)
-    text = re.sub(r"\s+", " ", text)
+
+    text = re.sub(
+        r"[^a-z0-9\s]",
+        " ",
+        text
+    )
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
 
     return text.strip()
 
 
 def stem(word):
+
     word = word.lower()
 
     endings = [
@@ -266,13 +284,19 @@ def stem(word):
     ]
 
     for ending in endings:
-        if len(word) > len(ending) + 3 and word.endswith(ending):
+
+        if (
+            len(word)
+            > len(ending) + 3
+            and word.endswith(ending)
+        ):
             return word[:-len(ending)]
 
     return word
 
 
 def content_tokens(text):
+
     stopwords = {
         "the", "a", "an", "and", "or", "of", "to",
         "in", "on", "for", "with", "by", "from",
@@ -296,10 +320,40 @@ def content_tokens(text):
 
 
 # ============================================================
-# REMOVE OBE LANGUAGE FROM STUDENT-FACING QUESTIONS
+# CLEAN QUESTION PUNCTUATION
+# ============================================================
+
+def clean_question_punctuation(text):
+
+    text = clean_text(text)
+
+    if not text:
+        return ""
+
+    # Remove any combination of final punctuation.
+    text = re.sub(
+        r"[.!?]+$",
+        "",
+        text
+    ).strip()
+
+    # Remove spaces before punctuation.
+    text = re.sub(
+        r"\s+([,.;:!?])",
+        r"\1",
+        text
+    )
+
+    # Ensure exactly one question mark.
+    return text + "?"
+
+
+# ============================================================
+# REMOVE OBE LANGUAGE
 # ============================================================
 
 def remove_obe_words(text):
+
     forbidden = [
         "course learning outcome",
         "program learning outcome",
@@ -313,6 +367,7 @@ def remove_obe_words(text):
     result = text
 
     for phrase in forbidden:
+
         result = re.sub(
             rf"\b{re.escape(phrase)}\b",
             "",
@@ -320,7 +375,6 @@ def remove_obe_words(text):
             flags=re.IGNORECASE
         )
 
-    # Remove standalone CLO/PLO only.
     result = re.sub(
         r"\bCLO\s*\d*\b",
         "",
@@ -335,7 +389,11 @@ def remove_obe_words(text):
         flags=re.IGNORECASE
     )
 
-    result = re.sub(r"\s+", " ", result)
+    result = re.sub(
+        r"\s+",
+        " ",
+        result
+    )
 
     return result.strip()
 
@@ -345,6 +403,7 @@ def remove_obe_words(text):
 # ============================================================
 
 def tesseract_available():
+
     return (
         pytesseract is not None
         and Image is not None
@@ -352,6 +411,7 @@ def tesseract_available():
 
 
 def ocr_image(image):
+
     if not tesseract_available():
         return ""
 
@@ -364,12 +424,14 @@ def ocr_image(image):
 def read_pdf(uploaded_file):
 
     if fitz is None:
+
         return (
             "",
             "PyMuPDF is not installed. Add PyMuPDF to requirements.txt."
         )
 
     try:
+
         data = uploaded_file.read()
 
         doc = fitz.open(
@@ -383,23 +445,36 @@ def read_pdf(uploaded_file):
 
             text = page.get_text("text") or ""
 
-            # OCR scanned pages.
-            if len(re.sub(r"\s+", "", text)) < 80:
+            if len(
+                re.sub(
+                    r"\s+",
+                    "",
+                    text
+                )
+            ) < 80:
 
                 if tesseract_available():
 
                     pix = page.get_pixmap(
-                        matrix=fitz.Matrix(2, 2),
+                        matrix=fitz.Matrix(
+                            2,
+                            2
+                        ),
                         alpha=False
                     )
 
                     image = Image.frombytes(
                         "RGB",
-                        [pix.width, pix.height],
+                        [
+                            pix.width,
+                            pix.height
+                        ],
                         pix.samples
                     )
 
-                    ocr_text = ocr_image(image)
+                    ocr_text = ocr_image(
+                        image
+                    )
 
                     if ocr_text.strip():
                         text += "\n" + ocr_text
@@ -408,9 +483,12 @@ def read_pdf(uploaded_file):
 
         doc.close()
 
-        return clean_text(
-            "\n".join(pages)
-        ), ""
+        return (
+            clean_text(
+                "\n".join(pages)
+            ),
+            ""
+        )
 
     except Exception as e:
 
@@ -427,6 +505,7 @@ def read_pdf(uploaded_file):
 def read_docx(uploaded_file):
 
     if Document is None:
+
         return (
             "",
             "python-docx is not installed."
@@ -445,6 +524,7 @@ def read_docx(uploaded_file):
         for paragraph in doc.paragraphs:
 
             if paragraph.text.strip():
+
                 parts.append(
                     paragraph.text
                 )
@@ -460,9 +540,12 @@ def read_docx(uploaded_file):
                     )
                 )
 
-        return clean_text(
-            "\n".join(parts)
-        ), ""
+        return (
+            clean_text(
+                "\n".join(parts)
+            ),
+            ""
+        )
 
     except Exception as e:
 
@@ -495,17 +578,25 @@ def read_excel(uploaded_file):
                 f"Sheet: {sheet_name}"
             )
 
-            if df is not None and not df.empty:
+            if (
+                df is not None
+                and not df.empty
+            ):
 
                 parts.append(
                     df.fillna("")
                     .astype(str)
-                    .to_csv(index=False)
+                    .to_csv(
+                        index=False
+                    )
                 )
 
-        return clean_text(
-            "\n".join(parts)
-        ), ""
+        return (
+            clean_text(
+                "\n".join(parts)
+            ),
+            ""
+        )
 
     except Exception as e:
 
@@ -529,11 +620,16 @@ def read_csv(uploaded_file):
             io.BytesIO(data)
         )
 
-        return clean_text(
-            df.fillna("")
-            .astype(str)
-            .to_csv(index=False)
-        ), ""
+        return (
+            clean_text(
+                df.fillna("")
+                .astype(str)
+                .to_csv(
+                    index=False
+                )
+            ),
+            ""
+        )
 
     except Exception as e:
 
@@ -553,12 +649,15 @@ def read_txt(uploaded_file):
 
         data = uploaded_file.read()
 
-        return clean_text(
-            data.decode(
-                "utf-8",
-                errors="ignore"
-            )
-        ), ""
+        return (
+            clean_text(
+                data.decode(
+                    "utf-8",
+                    errors="ignore"
+                )
+            ),
+            ""
+        )
 
     except Exception as e:
 
@@ -582,7 +681,10 @@ def read_uploaded_file(uploaded_file):
     if filename.endswith(".docx"):
         return read_docx(uploaded_file)
 
-    if filename.endswith(".xlsx") or filename.endswith(".xls"):
+    if (
+        filename.endswith(".xlsx")
+        or filename.endswith(".xls")
+    ):
         return read_excel(uploaded_file)
 
     if filename.endswith(".csv"):
@@ -616,7 +718,6 @@ def parse_outcomes(text):
 
     for line in lines:
 
-        # Remove CLO/PLO numbering.
         line = re.sub(
             r"^\s*(?:CLO|PLO)?\s*"
             r"\d+\s*[-:.)]?\s*",
@@ -632,7 +733,9 @@ def parse_outcomes(text):
             flags=re.IGNORECASE
         )
 
-        line = clean_text(line)
+        line = clean_text(
+            line
+        )
 
         if len(line) >= 8:
             outcomes.append(line)
@@ -645,6 +748,7 @@ def parse_outcomes(text):
 # ============================================================
 
 OUTCOME_ACTION_WORDS = {
+
     "identify", "define", "describe", "explain",
     "understand", "apply", "use", "demonstrate",
     "analyze", "analyse", "evaluate", "assess",
@@ -679,6 +783,10 @@ def outcome_concept_tokens(text):
     return set(result)
 
 
+# ============================================================
+# OUTCOME CONCEPT SCORE
+# ============================================================
+
 def outcome_concept_score(
     question,
     outcome
@@ -705,20 +813,32 @@ def outcome_concept_score(
 
     outcome_coverage = (
         len(overlap)
-        / max(1, len(o_tokens))
+        / max(
+            1,
+            len(o_tokens)
+        )
     ) * 100
 
     question_coverage = (
         len(overlap)
-        / max(1, len(q_tokens))
+        / max(
+            1,
+            len(q_tokens)
+        )
     ) * 100
 
     score = (
-        outcome_coverage * 0.75
-        + question_coverage * 0.25
+        outcome_coverage * 0.70
+        + question_coverage * 0.30
     )
 
-    if outcome_coverage >= 80:
+    if outcome_coverage >= 70:
+        score = max(
+            score,
+            80
+        )
+
+    if outcome_coverage >= 85:
         score = max(
             score,
             90
@@ -737,6 +857,10 @@ def outcome_concept_score(
         )
     )
 
+
+# ============================================================
+# BEST OUTCOME
+# ============================================================
 
 def best_outcome(
     question,
@@ -771,7 +895,10 @@ def best_outcome(
             basic_score = int(
                 round(
                     len(overlap)
-                    / max(1, len(o_tokens))
+                    / max(
+                        1,
+                        len(o_tokens)
+                    )
                     * 100
                 )
             )
@@ -792,7 +919,10 @@ def best_outcome(
 
     return (
         best,
-        min(100, best_score)
+        min(
+            100,
+            best_score
+        )
     )
 
 
@@ -860,7 +990,9 @@ NUMBERED_QUESTION_RE = re.compile(
 
 def looks_like_metadata(text):
 
-    n = normalize(text)
+    n = normalize(
+        text
+    )
 
     if not n:
         return True
@@ -956,7 +1088,9 @@ def is_question_candidate(text):
     if not text:
         return False
 
-    if looks_like_metadata(text):
+    if looks_like_metadata(
+        text
+    ):
         return False
 
     if len(text) < 10:
@@ -965,7 +1099,9 @@ def is_question_candidate(text):
     if len(text) > 1000:
         return False
 
-    n = normalize(text)
+    n = normalize(
+        text
+    )
 
     if "questionwell" in n:
         return False
@@ -1004,6 +1140,7 @@ def extract_questions(text):
     lines = text.splitlines()
 
     questions = []
+
     current = ""
 
     for line in lines:
@@ -1042,7 +1179,9 @@ def extract_questions(text):
 
                 current += " " + line
 
-            elif is_question_candidate(line):
+            elif is_question_candidate(
+                line
+            ):
 
                 current = line
 
@@ -1060,6 +1199,7 @@ def extract_questions(text):
             )
 
     final = []
+
     seen = set()
 
     for question in questions:
@@ -1072,9 +1212,15 @@ def extract_questions(text):
             question
         )
 
-        if key and key not in seen:
+        if (
+            key
+            and key not in seen
+        ):
 
-            seen.add(key)
+            seen.add(
+                key
+            )
+
             final.append(
                 question
             )
@@ -1131,6 +1277,7 @@ def check_subject(
     ).strip()
 
     if not combined:
+
         return (
             100,
             True,
@@ -1146,6 +1293,7 @@ def check_subject(
     )
 
     if not q_tokens or not course_tokens:
+
         return (
             50,
             False,
@@ -1168,7 +1316,8 @@ def check_subject(
                         8
                     )
                 )
-            ) * 100
+            )
+            * 100
         )
     )
 
@@ -1189,7 +1338,7 @@ def check_subject(
 
             direct_score = max(
                 direct_score,
-                85
+                90
             )
 
         elif (
@@ -1198,7 +1347,7 @@ def check_subject(
         ):
 
             return (
-                15,
+                10,
                 False,
                 question_domain
             )
@@ -1220,7 +1369,7 @@ def check_subject(
                 direct_score,
                 min(
                     100,
-                    65
+                    70
                     + len(name_overlap) * 10
                 )
             )
@@ -1273,6 +1422,7 @@ def bloom_score(
     )
 
     if actual == intended_bloom:
+
         return (
             100,
             actual
@@ -1288,17 +1438,26 @@ def bloom_score(
     }
 
     difference = abs(
-        order.get(actual, 2)
-        - order.get(intended_bloom, 2)
+        order.get(
+            actual,
+            2
+        )
+        -
+        order.get(
+            intended_bloom,
+            2
+        )
     )
 
     if difference == 1:
+
         return (
             70,
             actual
         )
 
     if difference == 2:
+
         return (
             45,
             actual
@@ -1340,6 +1499,7 @@ def quality_score(question):
     all_verbs = set()
 
     for verbs in BLOOM_VERBS.values():
+
         all_verbs.update(
             verbs
         )
@@ -1385,6 +1545,107 @@ def quality_score(question):
 
 
 # ============================================================
+# PLO ALIGNMENT
+# ============================================================
+
+def calculate_plo_alignment(
+    question,
+    matched_clo,
+    matched_plo
+):
+
+    if not matched_plo:
+        return 0
+
+    direct_plo = outcome_concept_score(
+        question,
+        matched_plo
+    )
+
+    clo_alignment = 0
+
+    if matched_clo:
+
+        clo_alignment = outcome_concept_score(
+            question,
+            matched_clo
+        )
+
+    clo_tokens = outcome_concept_tokens(
+        matched_clo
+    )
+
+    plo_tokens = outcome_concept_tokens(
+        matched_plo
+    )
+
+    if (
+        clo_tokens
+        and plo_tokens
+    ):
+
+        shared = (
+            clo_tokens
+            & plo_tokens
+        )
+
+        clo_plo_relationship = (
+            len(shared)
+            / max(
+                1,
+                len(plo_tokens)
+            )
+        ) * 100
+
+    else:
+
+        clo_plo_relationship = 0
+
+    score = (
+        direct_plo * 0.55
+        + clo_alignment * 0.20
+        + clo_plo_relationship * 0.25
+    )
+
+    if (
+        clo_alignment >= 80
+        and clo_plo_relationship >= 50
+    ):
+
+        score = max(
+            score,
+            80
+        )
+
+    if (
+        clo_alignment >= 90
+        and clo_plo_relationship >= 65
+    ):
+
+        score = max(
+            score,
+            90
+        )
+
+    if (
+        clo_alignment >= 95
+        and clo_plo_relationship >= 80
+    ):
+
+        score = max(
+            score,
+            100
+        )
+
+    return int(
+        min(
+            100,
+            round(score)
+        )
+    )
+
+
+# ============================================================
 # MAIN EVALUATOR
 # ============================================================
 
@@ -1396,6 +1657,10 @@ def evaluate_question(
     plo_text,
     intended_bloom
 ):
+
+    question = clean_text(
+        question
+    )
 
     clos = parse_outcomes(
         clo_text
@@ -1416,9 +1681,15 @@ def evaluate_question(
         clos
     )
 
-    matched_plo, plo_score = best_outcome(
+    matched_plo, direct_plo_score = best_outcome(
         question,
         plos
+    )
+
+    plo_score = calculate_plo_alignment(
+        question,
+        matched_clo,
+        matched_plo
     )
 
     bloom_alignment, actual_bloom = bloom_score(
@@ -1431,7 +1702,7 @@ def evaluate_question(
     )
 
     # --------------------------------------------------------
-    # SUBJECT IS A HARD GATE
+    # HARD SUBJECT GATE
     # --------------------------------------------------------
 
     if not subject_ok:
@@ -1448,7 +1719,11 @@ def evaluate_question(
         effective_plo = plo_score
         effective_bloom = bloom_alignment
 
-        if clo_score < 60:
+        if clo_score < 80:
+
+            status = "Rejected"
+
+        elif plo_score < 80:
 
             status = "Rejected"
 
@@ -1456,11 +1731,7 @@ def evaluate_question(
 
             status = "Rejected"
 
-        elif plo_score < 45:
-
-            status = "Needs Review"
-
-        elif quality < 60:
+        elif quality < 80:
 
             status = "Needs Review"
 
@@ -1469,7 +1740,7 @@ def evaluate_question(
             status = "Approved"
 
     # --------------------------------------------------------
-    # WEIGHTED SCORE
+    # OVERALL
     # --------------------------------------------------------
 
     overall_score = (
@@ -1492,37 +1763,68 @@ def evaluate_question(
         )
     )
 
+    # --------------------------------------------------------
+    # STRICT ALIGNMENT
+    # ALL REQUIRED DIMENSIONS MUST BE >= 80
+    # --------------------------------------------------------
+
     attained = (
         overall_score >= 80
-        and subject_score >= 60
-        and clo_score >= 60
-        and plo_score >= 45
+        and subject_score >= 80
+        and clo_score >= 80
+        and plo_score >= 80
         and bloom_alignment >= 80
-        and quality >= 60
+        and quality >= 80
     )
 
     if attained:
         status = "Approved"
 
     return {
+
         "Question": question,
+
         "Overall Score": overall_score,
-        "Subject Relevance": int(subject_score),
-        "CLO Alignment": int(effective_clo),
-        "PLO Alignment": int(effective_plo),
-        "Bloom Alignment": int(effective_bloom),
-        "Quality": int(quality),
+
+        "Subject Relevance": int(
+            subject_score
+        ),
+
+        "CLO Alignment": int(
+            effective_clo
+        ),
+
+        "PLO Alignment": int(
+            effective_plo
+        ),
+
+        "Bloom Alignment": int(
+            effective_bloom
+        ),
+
+        "Quality": int(
+            quality
+        ),
+
         "Matched CLO": matched_clo,
+
         "Matched PLO": matched_plo,
+
         "Detected Bloom": actual_bloom,
-        "Detected Subject": detected_subject or "Not detected",
+
+        "Detected Subject": (
+            detected_subject
+            or "Not detected"
+        ),
+
         "Status": status,
+
         "Alignment Attained": attained
     }
 
 
 # ============================================================
-# REVISION TOPICS
+# COURSE TOPICS
 # ============================================================
 
 def extract_course_topics(
@@ -1550,6 +1852,7 @@ def extract_course_topics(
         )
 
         if len(line) >= 3:
+
             topics.append(
                 line
             )
@@ -1573,6 +1876,7 @@ def extract_course_topics(
         )
 
     final = []
+
     seen = set()
 
     for topic in topics:
@@ -1581,15 +1885,25 @@ def extract_course_topics(
             topic
         )
 
-        if key and key not in seen:
+        if (
+            key
+            and key not in seen
+        ):
 
-            seen.add(key)
+            seen.add(
+                key
+            )
+
             final.append(
                 topic
             )
 
-    return final[:30]
+    return final[:50]
 
+
+# ============================================================
+# STRONG TOPIC SELECTION
+# ============================================================
 
 def select_revision_topic(
     matched_clo,
@@ -1633,10 +1947,30 @@ def select_revision_topic(
             & plo_tokens
         )
 
+        course_domain, course_hits = detect_domain(
+            course_name
+            + " "
+            + course_content
+        )
+
+        topic_domain, topic_hits = detect_domain(
+            topic
+        )
+
+        domain_bonus = 0
+
+        if (
+            course_domain
+            and topic_domain
+            and course_domain == topic_domain
+        ):
+            domain_bonus = 30
+
         score = (
-            len(clo_overlap) * 10
-            + len(plo_overlap) * 5
-            + len(topic_tokens)
+            len(clo_overlap) * 25
+            + len(plo_overlap) * 20
+            + len(topic_tokens) * 2
+            + domain_bonus
         )
 
         if score > best_score:
@@ -1654,11 +1988,18 @@ def select_revision_topic(
     if core:
         return core
 
+    core = extract_outcome_core(
+        matched_plo
+    )
+
+    if core:
+        return core
+
     return course_name
 
 
 # ============================================================
-# REVISION QUESTION GENERATOR
+# GENERATE REVISION CANDIDATES
 # ============================================================
 
 def generate_revision_candidates(
@@ -1689,21 +2030,56 @@ def generate_revision_candidates(
         matched_plo
     )
 
-    if not topic:
-        topic = clo_core
-
-    if not topic:
-        topic = course_name
-
     topic = remove_obe_words(
         topic
     )
 
-    if len(topic) > 180:
+    clo_core = remove_obe_words(
+        clo_core
+    )
+
+    plo_core = remove_obe_words(
+        plo_core
+    )
+
+    if not topic:
+        topic = clo_core
+
+    if not topic:
+        topic = plo_core
+
+    if not topic:
+        topic = course_name
+
+    # Keep phrases manageable.
+    if len(topic) > 160:
 
         topic = (
-            topic[:180]
-            .rsplit(" ", 1)[0]
+            topic[:160]
+            .rsplit(
+                " ",
+                1
+            )[0]
+        )
+
+    if len(clo_core) > 160:
+
+        clo_core = (
+            clo_core[:160]
+            .rsplit(
+                " ",
+                1
+            )[0]
+        )
+
+    if len(plo_core) > 160:
+
+        plo_core = (
+            plo_core[:160]
+            .rsplit(
+                " ",
+                1
+            )[0]
         )
 
     candidates = []
@@ -1715,12 +2091,16 @@ def generate_revision_candidates(
     if intended_bloom == "Remember":
 
         candidates.extend([
-            f"Define {topic} and list its main characteristics.",
-            f"Identify the key characteristics of {topic} and "
-            f"state the role of each.",
-            f"What is {topic}? State its main components.",
-            f"List the major components of {topic} and state "
-            f"the function of each."
+
+            f"Define {topic} and list its main characteristics",
+
+            f"Identify the key characteristics of {topic} and state the function of each",
+
+            f"What is {topic}? State its main components",
+
+            f"List the major components of {topic} and state the function of each",
+
+            f"Identify the fundamental elements of {topic} and state their roles"
         ])
 
     # ========================================================
@@ -1730,14 +2110,16 @@ def generate_revision_candidates(
     elif intended_bloom == "Understand":
 
         candidates.extend([
-            f"Explain {topic} and describe the relationship among "
-            f"its main components.",
-            f"Describe {topic} and explain the role of its major "
-            f"components.",
-            f"Explain the main principles of {topic} and "
-            f"illustrate them with a relevant example.",
-            f"Compare the main features of {topic} and explain "
-            f"how they are related."
+
+            f"Explain {topic} and describe the relationship among its main components",
+
+            f"Describe {topic} and explain the role of its major components",
+
+            f"Explain the main principles of {topic} and illustrate them with a relevant example",
+
+            f"Compare the main features of {topic} and explain how they are related",
+
+            f"Explain {topic} and describe how its major components work together"
         ])
 
     # ========================================================
@@ -1747,16 +2129,16 @@ def generate_revision_candidates(
     elif intended_bloom == "Apply":
 
         candidates.extend([
-            f"Apply the principles of {topic} to solve a relevant "
-            f"problem and show all necessary steps.",
-            f"Given a practical situation involving {topic}, "
-            f"apply the appropriate principles to determine "
-            f"the correct result.",
-            f"Use {topic} to solve a problem and show the method "
-            f"used to obtain the solution.",
-            f"A practical problem involves {topic}. Apply the "
-            f"appropriate method to obtain the solution and "
-            f"justify the result."
+
+            f"Apply the principles of {topic} to solve a relevant problem and show all necessary steps",
+
+            f"Given a practical situation involving {topic}, apply the appropriate principles to determine the correct result",
+
+            f"Use {topic} to solve a problem and show the method used to obtain the solution",
+
+            f"Apply the appropriate method to a practical problem involving {topic} and obtain the solution",
+
+            f"Given a problem involving {topic}, apply the relevant concepts to determine the correct solution"
         ])
 
     # ========================================================
@@ -1766,14 +2148,16 @@ def generate_revision_candidates(
     elif intended_bloom == "Analyze":
 
         candidates.extend([
-            f"Analyze {topic} by identifying its major components "
-            f"and explaining the relationships among them.",
-            f"Examine {topic} and distinguish its major components. "
-            f"Explain how each component contributes to the result.",
-            f"Analyze the relationship among the major components "
-            f"of {topic} and explain how they influence one another.",
-            f"Compare the major components of {topic} and analyze "
-            f"how their differences affect the overall result."
+
+            f"Analyze {topic} by identifying its major components and explaining the relationships among them",
+
+            f"Examine {topic} and distinguish its major components. Explain how each component contributes to the result",
+
+            f"Analyze the relationship among the major components of {topic} and explain how they influence one another",
+
+            f"Compare the major components of {topic} and analyze how their differences affect the overall result",
+
+            f"Analyze {topic} by examining its major elements and explaining their relationships"
         ])
 
     # ========================================================
@@ -1783,15 +2167,16 @@ def generate_revision_candidates(
     elif intended_bloom == "Evaluate":
 
         candidates.extend([
-            f"Evaluate {topic} using appropriate criteria and "
-            f"justify your conclusion with relevant evidence.",
-            f"Assess the effectiveness of {topic} in a relevant "
-            f"context and justify your judgment with specific evidence.",
-            f"Compare two approaches related to {topic}, evaluate "
-            f"their effectiveness using clear criteria, and justify "
-            f"your conclusion.",
-            f"Evaluate the strengths and limitations of {topic} "
-            f"and justify your conclusion using relevant evidence."
+
+            f"Evaluate {topic} using appropriate criteria and justify your conclusion with relevant evidence",
+
+            f"Assess the effectiveness of {topic} in a relevant context and justify your judgment with specific evidence",
+
+            f"Compare two approaches related to {topic}, evaluate their effectiveness using clear criteria, and justify your conclusion",
+
+            f"Evaluate the strengths and limitations of {topic} and justify your conclusion using relevant evidence",
+
+            f"Assess {topic} using clear criteria and justify your evaluation with relevant evidence"
         ])
 
     # ========================================================
@@ -1801,22 +2186,20 @@ def generate_revision_candidates(
     elif intended_bloom == "Create":
 
         candidates.extend([
-            f"Design a practical solution based on {topic} for "
-            f"a clearly defined problem and explain the major "
-            f"design decisions.",
-            f"Develop a solution that applies {topic} to address "
-            f"a relevant problem. Describe the main components "
-            f"of your solution.",
-            f"Design an appropriate approach for a problem "
-            f"involving {topic} and explain how your proposed "
-            f"solution addresses the problem.",
-            f"Construct a practical solution using the principles "
-            f"of {topic} and explain the reasoning behind its "
-            f"major components."
+
+            f"Design a practical solution based on {topic} for a clearly defined problem and explain the major design decisions",
+
+            f"Develop a solution that applies {topic} to address a relevant problem. Describe the main components of your solution",
+
+            f"Design an appropriate approach for a problem involving {topic} and explain how your proposed solution addresses the problem",
+
+            f"Construct a practical solution using the principles of {topic} and explain the reasoning behind its major components",
+
+            f"Develop a practical solution involving {topic} and explain how the proposed solution addresses the problem"
         ])
 
     # ========================================================
-    # ADD CLO-SPECIFIC VARIANTS
+    # CLO-SPECIFIC
     # ========================================================
 
     if clo_core:
@@ -1824,49 +2207,130 @@ def generate_revision_candidates(
         if intended_bloom == "Remember":
 
             candidates.append(
-                f"Define {clo_core} and state its key characteristics."
+                f"Define {clo_core} and state its key characteristics"
             )
 
         elif intended_bloom == "Understand":
 
             candidates.append(
-                f"Explain {clo_core} and illustrate the concept "
-                f"with a relevant example."
+                f"Explain {clo_core} using {topic} as a relevant example"
             )
 
         elif intended_bloom == "Apply":
 
             candidates.append(
-                f"Apply {clo_core} to solve a relevant problem "
-                f"and show the steps used."
+                f"Apply {clo_core} to a practical problem involving {topic} and show the steps used"
             )
 
         elif intended_bloom == "Analyze":
 
             candidates.append(
-                f"Analyze {clo_core} by identifying its major "
-                f"components and explaining their relationships."
+                f"Analyze {clo_core} in the context of {topic} and explain the relationships among its major components"
             )
 
         elif intended_bloom == "Evaluate":
 
             candidates.append(
-                f"Evaluate {clo_core} using clear criteria and "
-                f"justify your conclusion with evidence."
+                f"Evaluate {clo_core} in the context of {topic} using clear criteria and justify your conclusion"
             )
 
         elif intended_bloom == "Create":
 
             candidates.append(
-                f"Design a practical solution using {clo_core} "
-                f"and explain the major decisions in your design."
+                f"Design a practical solution involving {topic} using {clo_core} and explain the major design decisions"
             )
 
     # ========================================================
-    # CLEAN
+    # PLO-SPECIFIC
+    # ========================================================
+
+    if plo_core:
+
+        if intended_bloom == "Remember":
+
+            candidates.append(
+                f"Identify the key elements of {plo_core} using {topic} and state their main characteristics"
+            )
+
+        elif intended_bloom == "Understand":
+
+            candidates.append(
+                f"Explain {topic} and describe how it demonstrates {plo_core}"
+            )
+
+        elif intended_bloom == "Apply":
+
+            candidates.append(
+                f"Apply {topic} to a practical problem and demonstrate {plo_core}"
+            )
+
+        elif intended_bloom == "Analyze":
+
+            candidates.append(
+                f"Analyze {topic} and explain how its major components demonstrate {plo_core}"
+            )
+
+        elif intended_bloom == "Evaluate":
+
+            candidates.append(
+                f"Evaluate a solution involving {topic} using criteria related to {plo_core} and justify your conclusion"
+            )
+
+        elif intended_bloom == "Create":
+
+            candidates.append(
+                f"Design a solution involving {topic} that demonstrates {plo_core} and explain the major design decisions"
+            )
+
+    # ========================================================
+    # COMBINED CLO + PLO
+    # ========================================================
+
+    if clo_core and plo_core:
+
+        if intended_bloom == "Remember":
+
+            candidates.append(
+                f"Identify the key elements of {topic} related to {clo_core} and state their main characteristics"
+            )
+
+        elif intended_bloom == "Understand":
+
+            candidates.append(
+                f"Explain {clo_core} using {topic} and describe how it demonstrates {plo_core}"
+            )
+
+        elif intended_bloom == "Apply":
+
+            candidates.append(
+                f"Apply {clo_core} to a practical problem involving {topic} and demonstrate {plo_core}"
+            )
+
+        elif intended_bloom == "Analyze":
+
+            candidates.append(
+                f"Analyze {clo_core} in the context of {topic} and explain how its components demonstrate {plo_core}"
+            )
+
+        elif intended_bloom == "Evaluate":
+
+            candidates.append(
+                f"Evaluate a solution involving {topic} using {clo_core} and justify the result using criteria related to {plo_core}"
+            )
+
+        elif intended_bloom == "Create":
+
+            candidates.append(
+                f"Design a solution involving {topic} using {clo_core} that demonstrates {plo_core}"
+            )
+
+    # ========================================================
+    # CLEAN AND DEDUPLICATE
     # ========================================================
 
     cleaned = []
+
+    seen = set()
 
     for candidate in candidates:
 
@@ -1880,14 +2344,9 @@ def generate_revision_candidates(
             candidate
         ).strip()
 
-        candidate = re.sub(
-            r"\s+([?.!,])",
-            r"\1",
+        candidate = clean_question_punctuation(
             candidate
         )
-
-        if not candidate.endswith("?"):
-            candidate += "?"
 
         if re.search(
             r"\b(?:CLO|PLO|OBE|learning outcome|alignment)\b",
@@ -1896,7 +2355,18 @@ def generate_revision_candidates(
         ):
             continue
 
-        if candidate not in cleaned:
+        key = normalize(
+            candidate
+        )
+
+        if (
+            key
+            and key not in seen
+        ):
+
+            seen.add(
+                key
+            )
 
             cleaned.append(
                 candidate
@@ -1913,11 +2383,12 @@ def revision_passes(result):
 
     return (
         result["Overall Score"] >= 80
-        and result["Subject Relevance"] >= 60
-        and result["CLO Alignment"] >= 60
-        and result["PLO Alignment"] >= 45
+        and result["Subject Relevance"] >= 80
+        and result["CLO Alignment"] >= 80
+        and result["PLO Alignment"] >= 80
         and result["Bloom Alignment"] >= 80
-        and result["Quality"] >= 60
+        and result["Quality"] >= 80
+        and result["Alignment Attained"] is True
     )
 
 
@@ -1951,6 +2422,10 @@ def create_validated_revision(
         plo_text
     )
 
+    # --------------------------------------------------------
+    # FIND BEST ORIGINAL CLO/PLO
+    # --------------------------------------------------------
+
     matched_clo, _ = best_outcome(
         original_question,
         clos
@@ -1960,6 +2435,23 @@ def create_validated_revision(
         original_question,
         plos
     )
+
+    # --------------------------------------------------------
+    # IF ORIGINAL QUESTION HAS NO GOOD MATCH,
+    # USE THE FIRST AVAILABLE OUTCOMES AS THE REVISION TARGET.
+    # --------------------------------------------------------
+
+    if not matched_clo and clos:
+
+        matched_clo = clos[0]
+
+    if not matched_plo and plos:
+
+        matched_plo = plos[0]
+
+    # --------------------------------------------------------
+    # GENERATE MANY CANDIDATES
+    # --------------------------------------------------------
 
     candidates = generate_revision_candidates(
         original_question,
@@ -1973,10 +2465,14 @@ def create_validated_revision(
     evaluated = []
 
     # --------------------------------------------------------
-    # TEST EVERY GENERATED CANDIDATE
+    # EVALUATE EVERY CANDIDATE
     # --------------------------------------------------------
 
     for candidate in candidates:
+
+        candidate = clean_question_punctuation(
+            candidate
+        )
 
         result = evaluate_question(
             candidate,
@@ -1992,11 +2488,12 @@ def create_validated_revision(
         )
 
     # --------------------------------------------------------
-    # FIND TRUE 80+ ATTAINED REVISION
+    # FIND TRUE PASSING REVISIONS
     # --------------------------------------------------------
 
     passing = [
-        r for r in evaluated
+        r
+        for r in evaluated
         if revision_passes(r)
     ]
 
@@ -2017,14 +2514,16 @@ def create_validated_revision(
         best = passing[0]
 
         return {
-            "question": best["Question"],
+            "question": clean_question_punctuation(
+                best["Question"]
+            ),
             "result": best,
             "attained": True
         }
 
     # --------------------------------------------------------
-    # IF NOTHING PASSES, RETURN BEST ACTUAL RESULT.
-    # NEVER FAKE AN 80.
+    # NO TRUE PASSING REVISION
+    # RETURN BEST REAL RESULT
     # --------------------------------------------------------
 
     if evaluated:
@@ -2044,13 +2543,17 @@ def create_validated_revision(
         best = evaluated[0]
 
         return {
-            "question": best["Question"],
+            "question": clean_question_punctuation(
+                best["Question"]
+            ),
             "result": best,
             "attained": False
         }
 
     return {
-        "question": original_question,
+        "question": clean_question_punctuation(
+            original_question
+        ),
         "result": original_result,
         "attained": False
     }
@@ -2061,15 +2564,22 @@ def create_validated_revision(
 # ============================================================
 
 if "analysis_results" not in st.session_state:
+
     st.session_state.analysis_results = []
 
+
 if "revision_data" not in st.session_state:
+
     st.session_state.revision_data = {}
 
+
 if "revision_values" not in st.session_state:
+
     st.session_state.revision_values = {}
 
+
 if "tested_revisions" not in st.session_state:
+
     st.session_state.tested_revisions = {}
 
 
@@ -2088,8 +2598,8 @@ st.write(
 )
 
 st.info(
-    "Suggested revisions are automatically tested using "
-    "the same evaluation criteria as the original question."
+    "Automatic revisions are tested against the same "
+    "alignment criteria before they are accepted."
 )
 
 
@@ -2116,6 +2626,7 @@ with col2:
         "Intended Bloom's Level",
         BLOOM_LEVELS
     )
+
 
 course_content = st.text_area(
     "Course Content / Topics",
@@ -2186,7 +2697,7 @@ uploaded_file = st.file_uploader(
 
 
 # ============================================================
-# ANALYZE BUTTON
+# ANALYZE
 # ============================================================
 
 if st.button(
@@ -2207,6 +2718,14 @@ if st.button(
 
         st.error(
             "Please enter at least one CLO."
+        )
+
+        st.stop()
+
+    if not plo_text.strip():
+
+        st.error(
+            "Please enter at least one PLO."
         )
 
         st.stop()
@@ -2287,6 +2806,7 @@ if st.button(
 
 results = st.session_state.analysis_results
 
+
 if results:
 
     st.divider()
@@ -2323,7 +2843,8 @@ if results:
                 r["Overall Score"]
                 for r in results
             )
-            / max(
+            /
+            max(
                 1,
                 total
             )
@@ -2364,18 +2885,45 @@ if results:
     ):
 
         table_rows.append({
+
             "Question No.": number,
-            "Question": result["Question"],
-            "Score / 100": result["Overall Score"],
-            "Subject (%)": result["Subject Relevance"],
-            "CLO (%)": result["CLO Alignment"],
-            "PLO (%)": result["PLO Alignment"],
-            "Bloom (%)": result["Bloom Alignment"],
-            "Quality (%)": result["Quality"],
+
+            "Question": result[
+                "Question"
+            ],
+
+            "Score / 100": result[
+                "Overall Score"
+            ],
+
+            "Subject (%)": result[
+                "Subject Relevance"
+            ],
+
+            "CLO (%)": result[
+                "CLO Alignment"
+            ],
+
+            "PLO (%)": result[
+                "PLO Alignment"
+            ],
+
+            "Bloom (%)": result[
+                "Bloom Alignment"
+            ],
+
+            "Quality (%)": result[
+                "Quality"
+            ],
+
             "Status": (
                 "Approved"
-                if result["Alignment Attained"]
-                else result["Status"]
+                if result[
+                    "Alignment Attained"
+                ]
+                else result[
+                    "Status"
+                ]
             )
         })
 
@@ -2407,11 +2955,15 @@ if results:
             f"revision_{i}"
         )
 
-        if result["Alignment Attained"]:
+        if result[
+            "Alignment Attained"
+        ]:
 
             icon = "🟢"
 
-        elif result["Status"] == "Needs Review":
+        elif result[
+            "Status"
+        ] == "Needs Review":
 
             icon = "🟠"
 
@@ -2430,7 +2982,9 @@ if results:
             )
 
             st.write(
-                result["Question"]
+                result[
+                    "Question"
+                ]
             )
 
             # ------------------------------------------------
@@ -2473,39 +3027,53 @@ if results:
                 f"{result['Quality']}%"
             )
 
-            if result["Matched CLO"]:
+            if result[
+                "Matched CLO"
+            ]:
 
                 st.write(
                     "**Matched CLO:** "
-                    + result["Matched CLO"]
+                    + result[
+                        "Matched CLO"
+                    ]
                 )
 
-            if result["Matched PLO"]:
+            if result[
+                "Matched PLO"
+            ]:
 
                 st.write(
                     "**Matched PLO:** "
-                    + result["Matched PLO"]
+                    + result[
+                        "Matched PLO"
+                    ]
                 )
 
             st.write(
                 "**Detected Subject:** "
                 + str(
-                    result["Detected Subject"]
+                    result[
+                        "Detected Subject"
+                    ]
                 )
             )
 
             st.write(
                 "**Detected Bloom:** "
                 + str(
-                    result["Detected Bloom"]
+                    result[
+                        "Detected Bloom"
+                    ]
                 )
             )
 
             # ------------------------------------------------
-            # ORIGINAL ALREADY ATTAINED
+            # ALREADY ALIGNED
             # ------------------------------------------------
 
-            if result["Alignment Attained"]:
+            if result[
+                "Alignment Attained"
+            ]:
 
                 st.success(
                     f"✓ ALIGNMENT ATTAINED — "
@@ -2515,21 +3083,26 @@ if results:
                 continue
 
             # ------------------------------------------------
-            # GENERATE VALIDATED REVISION
+            # GENERATE REVISION
             # ------------------------------------------------
 
             st.markdown(
                 "### Suggested Revision"
             )
 
-            if revision_key not in st.session_state.revision_data:
+            if (
+                revision_key
+                not in st.session_state.revision_data
+            ):
 
                 with st.spinner(
                     "Generating and testing multiple revisions..."
                 ):
 
                     revision = create_validated_revision(
-                        result["Question"],
+                        result[
+                            "Question"
+                        ],
                         course_name,
                         course_content,
                         clo_text,
@@ -2543,11 +3116,15 @@ if results:
 
                     st.session_state.revision_values[
                         revision_key
-                    ] = revision["question"]
+                    ] = revision[
+                        "question"
+                    ]
 
-            revision = st.session_state.revision_data[
-                revision_key
-            ]
+            revision = (
+                st.session_state.revision_data[
+                    revision_key
+                ]
+            )
 
             suggested_question = revision[
                 "question"
@@ -2562,11 +3139,17 @@ if results:
             ]
 
             # ------------------------------------------------
-            # SHOW SUGGESTION
+            # SHOW REVISION
             # ------------------------------------------------
 
+            st.markdown(
+                "**Suggested Revised Question:**"
+            )
+
             st.info(
-                suggested_question
+                clean_question_punctuation(
+                    suggested_question
+                )
             )
 
             s1, s2, s3, s4, s5, s6 = st.columns(6)
@@ -2611,12 +3194,15 @@ if results:
             else:
 
                 st.warning(
-                    "The automatic generator could not find "
-                    "an 80+ revision from the supplied information."
+                    "This is the strongest automatically "
+                    "generated revision found from the supplied "
+                    "course, CLO, and PLO information. It has "
+                    "not been labelled aligned because one or "
+                    "more required criteria remain below 80%."
                 )
 
             # ------------------------------------------------
-            # USE SUGGESTED REVISION
+            # USE SUGGESTED
             # ------------------------------------------------
 
             if st.button(
@@ -2628,7 +3214,9 @@ if results:
 
                 st.session_state.revision_values[
                     revision_key
-                ] = suggested_question
+                ] = clean_question_punctuation(
+                    suggested_question
+                )
 
                 st.session_state.tested_revisions[
                     revision_key
@@ -2637,7 +3225,7 @@ if results:
                 st.rerun()
 
             # ------------------------------------------------
-            # EDITABLE QUESTION
+            # EDITABLE REVISION
             # ------------------------------------------------
 
             current_revision = (
@@ -2676,6 +3264,14 @@ if results:
 
                 else:
 
+                    revised_question = clean_question_punctuation(
+                        revised_question
+                    )
+
+                    st.session_state.revision_values[
+                        revision_key
+                    ] = revised_question
+
                     tested_result = evaluate_question(
                         revised_question,
                         course_name,
@@ -2695,11 +3291,16 @@ if results:
             # TESTED RESULT
             # ------------------------------------------------
 
-            if revision_key in st.session_state.tested_revisions:
+            if (
+                revision_key
+                in st.session_state.tested_revisions
+            ):
 
-                tested = st.session_state.tested_revisions[
-                    revision_key
-                ]
+                tested = (
+                    st.session_state.tested_revisions[
+                        revision_key
+                    ]
+                )
 
                 st.markdown(
                     "### Revised Evaluation"
@@ -2738,8 +3339,13 @@ if results:
                 )
 
                 change = (
-                    tested["Overall Score"]
-                    - result["Overall Score"]
+                    tested[
+                        "Overall Score"
+                    ]
+                    -
+                    result[
+                        "Overall Score"
+                    ]
                 )
 
                 st.write(
@@ -2754,9 +3360,9 @@ if results:
                 # FINAL DECISION
                 # ------------------------------------------------
 
-                if revision_passes(
-                    tested
-                ):
+                if tested[
+                    "Alignment Attained"
+                ]:
 
                     st.success(
                         f"✓ ALIGNMENT ACHIEVED AFTER REVISION — "
@@ -2778,31 +3384,31 @@ if results:
                     ] < 80:
 
                         problems.append(
-                            "Overall score is below 80."
+                            "Overall score is below 80%."
                         )
 
                     if tested[
                         "Subject Relevance"
-                    ] < 60:
+                    ] < 80:
 
                         problems.append(
-                            "Subject relevance is below 60%."
+                            "Subject relevance is below 80%."
                         )
 
                     if tested[
                         "CLO Alignment"
-                    ] < 60:
+                    ] < 80:
 
                         problems.append(
-                            "CLO alignment is below 60%."
+                            "CLO alignment is below 80%."
                         )
 
                     if tested[
                         "PLO Alignment"
-                    ] < 45:
+                    ] < 80:
 
                         problems.append(
-                            "PLO alignment is below 45%."
+                            "PLO alignment is below 80%."
                         )
 
                     if tested[
@@ -2816,10 +3422,10 @@ if results:
 
                     if tested[
                         "Quality"
-                    ] < 60:
+                    ] < 80:
 
                         problems.append(
-                            "Question quality is below 60%."
+                            "Question quality is below 80%."
                         )
 
                     if problems:
@@ -2835,7 +3441,7 @@ if results:
                             )
 
                     # ------------------------------------------------
-                    # GENERATE ANOTHER AUTOMATIC REVISION
+                    # STRONGER REVISION
                     # ------------------------------------------------
 
                     if st.button(
@@ -2844,8 +3450,6 @@ if results:
                         use_container_width=True
                     ):
 
-                        # Remove the current suggestion so that
-                        # a new candidate is generated.
                         st.session_state.revision_data.pop(
                             revision_key,
                             None
@@ -2872,7 +3476,6 @@ st.divider()
 
 st.caption(
     "OBE Assessment Alignment Checker | "
-    "Subject relevance is a mandatory gate. "
-    "Suggested revisions are evaluated using the same "
-    "criteria as the original assessment questions."
+    "Full alignment requires Overall, Subject, CLO, PLO, "
+    "Bloom, and Quality scores of at least 80%."
 )
