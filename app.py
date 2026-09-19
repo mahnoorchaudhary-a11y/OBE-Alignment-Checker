@@ -5,29 +5,6 @@ from collections import Counter
 import pandas as pd
 import streamlit as st
 
-# Optional libraries
-try:
-    import fitz  # PyMuPDF
-except ImportError:
-    fitz = None
-
-try:
-    import pytesseract
-except ImportError:
-    pytesseract = None
-
-try:
-    from PIL import Image, ImageOps, ImageEnhance
-except ImportError:
-    Image = None
-    ImageOps = None
-    ImageEnhance = None
-
-try:
-    from docx import Document
-except ImportError:
-    Document = None
-
 
 # ============================================================
 # PAGE CONFIG
@@ -36,7 +13,7 @@ except ImportError:
 st.set_page_config(
     page_title="OBE Assessment Alignment Checker",
     page_icon="🎓",
-    layout="wide"
+    layout="wide",
 )
 
 
@@ -50,253 +27,340 @@ BLOOM_LEVELS = [
     "Apply",
     "Analyze",
     "Evaluate",
-    "Create"
+    "Create",
 ]
+
+BLOOM_RANK = {
+    "Remember": 1,
+    "Understand": 2,
+    "Apply": 3,
+    "Analyze": 4,
+    "Evaluate": 5,
+    "Create": 6,
+}
 
 BLOOM_VERBS = {
     "Remember": {
-        "define", "list", "name", "identify", "state", "recall",
-        "recognize", "label", "match", "select", "describe"
+        "define", "identify", "name", "list", "state",
+        "recall", "recognize", "recognise", "label",
+        "select", "match", "mention"
     },
     "Understand": {
-        "explain", "summarize", "interpret", "classify", "discuss",
-        "compare", "contrast", "illustrate", "paraphrase", "describe"
+        "explain", "summarize", "summarise", "interpret",
+        "classify", "compare", "contrast", "discuss",
+        "illustrate", "paraphrase", "describe",
+        "differentiate", "distinguish"
     },
     "Apply": {
-        "apply", "calculate", "solve", "demonstrate", "use",
-        "implement", "execute", "compute", "perform", "construct"
+        "calculate", "compute", "solve", "use", "apply",
+        "demonstrate", "implement", "execute", "determine",
+        "find", "perform", "derive"
     },
     "Analyze": {
-        "analyze", "analyse", "differentiate", "examine", "investigate",
-        "categorize", "deconstruct", "infer", "distinguish", "break down"
+        "analyze", "analyse", "examine", "organize",
+        "organise", "investigate", "categorize",
+        "categorise", "infer", "differentiate",
+        "distinguish", "compare", "contrast"
     },
     "Evaluate": {
-        "evaluate", "justify", "assess", "critique", "judge",
-        "defend", "argue", "appraise", "validate", "recommend"
+        "evaluate", "judge", "justify", "critique",
+        "assess", "defend", "appraise", "argue",
+        "validate", "recommend"
     },
     "Create": {
-        "create", "design", "develop", "formulate", "produce",
-        "construct", "generate", "plan", "propose", "compose"
-    }
+        "design", "create", "develop", "formulate",
+        "construct", "produce", "propose", "plan",
+        "generate", "devise"
+    },
 }
 
 
 # ============================================================
-# STOP WORDS
-# ============================================================
-
-STOP_WORDS = {
-    "the", "a", "an", "and", "or", "but", "if", "then", "than",
-    "of", "to", "in", "on", "for", "from", "with", "by", "as",
-    "at", "is", "are", "was", "were", "be", "been", "being",
-    "this", "that", "these", "those", "it", "its", "their",
-    "they", "them", "he", "she", "his", "her", "you", "your",
-    "we", "our", "I", "me", "my", "which", "who", "what",
-    "when", "where", "why", "how", "do", "does", "did",
-    "can", "could", "may", "might", "should", "would", "will",
-    "shall", "must", "have", "has", "had", "also", "very",
-    "into", "about", "over", "under", "between", "through",
-    "following", "given", "using", "based", "question",
-    "questions", "answer", "answers", "following"
-}
-
-
-# ============================================================
-# SUBJECT / DOMAIN LEXICONS
+# SUBJECT LEXICONS
 # ============================================================
 
 DOMAIN_LEXICONS = {
-
     "Chemistry": {
-        "atom", "atoms", "molecule", "molecules", "element",
-        "elements", "compound", "compounds", "chemical",
-        "reaction", "reactions", "bond", "bonds", "ionic",
-        "covalent", "organic", "inorganic", "acid", "acids",
-        "base", "bases", "ph", "mole", "moles", "stoichiometry",
-        "oxidation", "reduction", "redox", "equilibrium",
-        "catalyst", "catalysis", "solution", "solubility",
-        "concentration", "periodic", "electron", "electrons",
-        "proton", "neutron", "valence", "orbital", "thermochemistry",
-        "enthalpy", "entropy", "kinetics", "isomer", "polymer"
+        "atom", "molecule", "element", "compound", "reaction",
+        "equilibrium", "acid", "base", "ph", "molarity",
+        "mole", "stoichiometry", "bond", "ionic", "covalent",
+        "organic", "inorganic", "oxidation", "reduction",
+        "redox", "catalyst", "kinetics", "thermodynamics",
+        "enthalpy", "entropy", "solution", "concentration",
+        "periodic", "electron", "proton", "neutron", "isotope",
+        "spectroscopy", "titration", "precipitate",
+        "solubility", "buffer", "electrochemistry"
     },
 
     "Physics": {
-        "force", "forces", "motion", "velocity", "acceleration",
-        "momentum", "energy", "work", "power", "mass", "weight",
-        "gravity", "gravitational", "friction", "pressure",
-        "density", "wave", "waves", "frequency", "wavelength",
-        "amplitude", "electric", "electricity", "current",
-        "voltage", "resistance", "circuit", "magnetic", "magnetism",
-        "charge", "field", "light", "optics", "lens", "mirror",
-        "quantum", "relativity", "thermodynamics", "temperature"
+        "force", "motion", "velocity", "acceleration", "mass",
+        "energy", "momentum", "gravity", "friction", "work",
+        "power", "wave", "frequency", "wavelength", "electric",
+        "magnetic", "voltage", "current", "resistance",
+        "circuit", "charge", "field", "optics", "lens",
+        "mirror", "pressure", "density", "kinematic",
+        "newton", "quantum", "relativity"
     },
 
     "Mathematics": {
-        "equation", "equations", "algebra", "algebraic", "variable",
-        "variables", "function", "functions", "derivative",
-        "derivatives", "integral", "integrals", "calculus",
-        "matrix", "matrices", "vector", "vectors", "probability",
-        "statistics", "mean", "median", "mode", "variance",
-        "geometry", "triangle", "angle", "polynomial", "factor",
-        "factorization", "logarithm", "logarithmic", "sequence",
-        "series", "limit", "limits", "set", "sets", "number",
-        "theorem", "proof", "graph", "linear", "quadratic"
+        "equation", "algebra", "matrix", "vector", "calculus",
+        "derivative", "integral", "function", "limit",
+        "probability", "statistics", "mean", "median",
+        "variance", "geometry", "trigonometry", "logarithm",
+        "polynomial", "theorem", "proof", "set", "sequence",
+        "series", "differential", "linear", "quadratic", "graph"
     },
 
     "Computer Science": {
-        "algorithm", "algorithms", "program", "programming",
-        "code", "coding", "software", "hardware", "computer",
-        "database", "databases", "sql", "python", "java", "c++",
-        "javascript", "class", "object", "objects", "inheritance",
-        "polymorphism", "encapsulation", "recursion", "array",
-        "arrays", "stack", "queue", "linked", "list", "tree",
-        "graph", "network", "networks", "operating", "system",
-        "systems", "compiler", "binary", "data", "structure",
-        "structures", "machine", "learning", "artificial",
-        "intelligence", "security", "cybersecurity"
+        "algorithm", "program", "programming", "code", "software",
+        "hardware", "database", "sql", "network", "computer",
+        "operating", "system", "memory", "processor", "cpu",
+        "data", "structure", "array", "stack", "queue", "tree",
+        "graph", "recursion", "class", "object", "inheritance",
+        "python", "java", "javascript", "machine", "learning",
+        "artificial", "intelligence", "compiler", "security"
+    },
+
+    "Biology": {
+        "cell", "organism", "gene", "dna", "rna", "protein",
+        "enzyme", "mitosis", "meiosis", "evolution", "species",
+        "ecosystem", "photosynthesis", "respiration", "membrane",
+        "chromosome", "genetics", "bacteria", "virus", "tissue",
+        "organ", "metabolism", "homeostasis", "population",
+        "ecology", "mutation", "transcription", "translation"
     },
 
     "English / Language": {
-        "grammar", "sentence", "sentences", "paragraph", "paragraphs",
-        "essay", "essays", "writing", "writer", "reading",
-        "main", "idea", "ideas", "purpose", "tone", "author",
-        "audience", "organization", "organizing", "paraphrase",
-        "summarize", "summary", "thesis", "argument", "rhetorical",
-        "language", "vocabulary", "pronunciation", "listening",
-        "speaking", "communication", "style", "coherence",
-        "cohesion", "transition", "transitions", "clause", "clauses"
+        "grammar", "sentence", "paragraph", "essay", "writing",
+        "reading", "author", "tone", "purpose", "main",
+        "idea", "paraphrase", "thesis", "argument", "rhetoric",
+        "language", "communication", "vocabulary", "syntax",
+        "morphology", "phonology", "semantics", "pragmatics",
+        "listening", "speaking", "audience", "organization",
+        "organisation"
     },
 
     "Literature": {
-        "poem", "poetry", "novel", "novels", "story", "stories",
-        "character", "characters", "plot", "theme", "themes",
-        "symbolism", "metaphor", "simile", "narrator", "narrative",
-        "author", "literary", "literature", "protagonist",
-        "antagonist", "setting", "imagery", "irony", "drama",
-        "fiction", "genre", "stanza", "verse", "sonnet"
+        "novel", "poem", "poetry", "character", "plot", "theme",
+        "symbolism", "metaphor", "narrator", "narrative",
+        "author", "literary", "fiction", "drama", "tragedy",
+        "irony", "imagery", "setting", "protagonist", "genre",
+        "sonnet", "stanza", "verse", "interpretation"
     },
 
     "Business / Management": {
-        "business", "management", "manager", "organization",
-        "organizational", "leadership", "marketing", "market",
-        "strategy", "strategic", "customer", "customers",
-        "entrepreneur", "entrepreneurship", "planning", "operations",
-        "human", "resources", "hr", "motivation", "decision",
-        "decisions", "performance", "consumer", "product",
-        "brand", "finance", "supply", "stakeholder", "stakeholders"
+        "management", "manager", "organization", "organisation",
+        "leadership", "strategy", "marketing", "customer",
+        "market", "business", "planning", "decision",
+        "entrepreneur", "entrepreneurship", "human",
+        "resource", "operations", "competitive", "stakeholder",
+        "performance", "motivation"
     },
 
     "Accounting / Finance": {
-        "accounting", "account", "accounts", "ledger", "journal",
-        "debit", "credit", "assets", "liabilities", "equity",
-        "revenue", "expense", "expenses", "profit", "loss",
-        "balance", "sheet", "income", "cash", "flow", "audit",
-        "auditing", "financial", "finance", "budget", "capital",
-        "investment", "ratio", "ratios", "depreciation", "tax"
+        "accounting", "account", "ledger", "journal", "balance",
+        "asset", "liability", "equity", "revenue", "expense",
+        "profit", "loss", "financial", "statement", "audit",
+        "debit", "credit", "cash", "budget", "investment",
+        "capital", "ratio", "income", "tax", "cost"
     },
 
     "Economics": {
         "economics", "economic", "demand", "supply", "market",
-        "price", "prices", "inflation", "unemployment", "gdp",
-        "gross", "domestic", "product", "fiscal", "monetary",
-        "policy", "utility", "consumer", "producer", "cost",
-        "revenue", "elasticity", "equilibrium", "competition",
-        "monopoly", "microeconomics", "macroeconomics"
+        "price", "inflation", "unemployment", "gdp", "fiscal",
+        "monetary", "policy", "elasticity", "utility", "consumer",
+        "producer", "equilibrium", "scarcity", "opportunity",
+        "trade", "exchange", "interest", "macroeconomic",
+        "microeconomic"
     },
 
     "Engineering": {
-        "engineering", "design", "mechanical", "electrical",
-        "civil", "structural", "material", "materials", "machine",
-        "machines", "manufacturing", "circuit", "circuits",
-        "stress", "strain", "load", "loads", "beam", "bridge",
-        "fluid", "fluids", "thermodynamics", "mechanics",
-        "control", "system", "systems", "process", "technical"
+        "engineering", "design", "machine", "mechanical",
+        "electrical", "civil", "structure", "material",
+        "circuit", "system", "load", "stress", "strain",
+        "fluid", "thermodynamic", "control", "manufacturing",
+        "prototype", "safety", "process", "technical"
     },
 
     "Psychology": {
-        "psychology", "psychological", "behavior", "behaviour",
-        "cognitive", "memory", "learning", "emotion", "emotions",
-        "personality", "development", "motivation", "perception",
-        "attention", "intelligence", "therapy", "mental",
-        "conditioning", "reinforcement", "neuroscience"
+        "psychology", "behavior", "behaviour", "cognition",
+        "memory", "learning", "emotion", "personality",
+        "development", "motivation", "perception", "therapy",
+        "mental", "social", "cognitive", "conditioning",
+        "reinforcement", "intelligence"
     },
 
     "Sociology": {
-        "society", "social", "sociology", "culture", "cultural",
-        "class", "gender", "socialization", "institution",
-        "institutions", "family", "community", "inequality",
-        "stratification", "deviance", "population", "urban",
-        "rural", "group", "groups", "norms", "values"
+        "society", "social", "culture", "class", "status",
+        "institution", "family", "community", "inequality",
+        "stratification", "norm", "value", "deviance",
+        "socialization", "socialisation", "urbanization",
+        "globalization", "group", "identity"
     },
 
     "Education": {
-        "education", "teaching", "learning", "teacher", "student",
-        "students", "pedagogy", "curriculum", "assessment",
-        "instruction", "classroom", "lesson", "learning",
-        "outcome", "outcomes", "educational", "school", "university",
-        "evaluation", "rubric", "learning", "methodology"
+        "education", "teaching", "learning", "student",
+        "curriculum", "pedagogy", "assessment", "classroom",
+        "instruction", "teacher", "lesson", "outcome",
+        "rubric", "evaluation", "educational", "methodology",
+        "school", "instructional"
     },
 
     "History": {
-        "history", "historical", "war", "wars", "empire", "king",
-        "kingdom", "colonial", "colonialism", "revolution",
-        "independence", "treaty", "dynasty", "civilization",
-        "ancient", "medieval", "modern", "political", "event",
-        "events", "period", "era"
+        "history", "historical", "war", "empire", "king",
+        "queen", "revolution", "colonial", "independence",
+        "treaty", "civilization", "civilisation", "dynasty",
+        "political", "ancient", "medieval", "modern",
+        "movement", "colonialism"
     },
 
     "Law": {
-        "law", "legal", "court", "courts", "judge", "judgment",
-        "judgement", "case", "cases", "contract", "contracts",
-        "constitution", "constitutional", "statute", "statutes",
-        "tort", "criminal", "civil", "liability", "evidence",
-        "rights", "rights", "plaintiff", "defendant", "legislation"
+        "law", "legal", "court", "contract", "tort", "crime",
+        "criminal", "civil", "statute", "constitution",
+        "judge", "judgment", "jurisdiction", "liability",
+        "negligence", "evidence", "case", "plaintiff",
+        "defendant", "rights"
     },
 
     "Pharmacy": {
-        "drug", "drugs", "medicine", "medication", "pharmacy",
-        "pharmacology", "dose", "dosage", "tablet", "capsule",
-        "drug", "receptor", "adverse", "therapeutic", "antibiotic",
-        "antibiotics", "pharmacokinetics", "pharmacodynamics",
-        "prescription", "formulation"
+        "drug", "medicine", "pharmacy", "pharmacology",
+        "dose", "dosage", "tablet", "capsule", "prescription",
+        "pharmacokinetics", "pharmacodynamics", "adverse",
+        "patient", "therapeutic", "antibiotic", "formulation",
+        "medication", "receptor"
     },
 
     "Medical / Health Sciences": {
-        "patient", "patients", "disease", "diseases", "clinical",
-        "diagnosis", "diagnostic", "treatment", "symptom", "symptoms",
-        "health", "medical", "medicine", "anatomy", "physiology",
-        "pathology", "infection", "hospital", "nursing", "therapy",
-        "blood", "cell", "cells", "organ", "organs"
+        "patient", "disease", "diagnosis", "symptom", "treatment",
+        "clinical", "medical", "health", "anatomy", "physiology",
+        "pathology", "infection", "hospital", "therapy",
+        "syndrome", "blood", "heart", "lung", "organ",
+        "nursing"
     },
 
     "Environmental Science": {
-        "environment", "environmental", "ecosystem", "ecosystems",
-        "pollution", "climate", "climate", "biodiversity",
-        "conservation", "sustainability", "waste", "water",
-        "air", "soil", "forest", "forests", "carbon", "emission",
-        "emissions", "global", "warming", "renewable", "energy"
-    }
+        "environment", "ecosystem", "pollution", "climate",
+        "carbon", "waste", "water", "air", "soil", "biodiversity",
+        "conservation", "sustainability", "greenhouse",
+        "global", "warming", "renewable", "resource",
+        "environmental"
+    },
 }
 
 
-DOMAIN_ALIASES = {
+RELATED_DOMAINS = {
+    "Chemistry": {
+        "Pharmacy",
+        "Environmental Science",
+        "Engineering",
+        "Biology"
+    },
+    "Physics": {
+        "Engineering",
+        "Mathematics",
+        "Computer Science"
+    },
+    "Mathematics": {
+        "Physics",
+        "Engineering",
+        "Economics",
+        "Computer Science"
+    },
+    "Biology": {
+        "Chemistry",
+        "Pharmacy",
+        "Medical / Health Sciences",
+        "Environmental Science"
+    },
+    "Computer Science": {
+        "Mathematics",
+        "Engineering"
+    },
+    "Business / Management": {
+        "Economics",
+        "Accounting / Finance"
+    },
+    "Accounting / Finance": {
+        "Business / Management",
+        "Economics"
+    },
+    "Economics": {
+        "Business / Management",
+        "Accounting / Finance",
+        "Mathematics"
+    },
+    "Pharmacy": {
+        "Chemistry",
+        "Biology",
+        "Medical / Health Sciences"
+    },
+    "Medical / Health Sciences": {
+        "Biology",
+        "Pharmacy",
+        "Chemistry"
+    },
+    "Environmental Science": {
+        "Biology",
+        "Chemistry",
+        "Engineering"
+    },
+}
+
+
+COURSE_ALIASES = {
     "chemistry": "Chemistry",
+    "general chemistry": "Chemistry",
+    "organic chemistry": "Chemistry",
+    "inorganic chemistry": "Chemistry",
+    "physical chemistry": "Chemistry",
+    "analytical chemistry": "Chemistry",
+
     "physics": "Physics",
+    "general physics": "Physics",
+
     "mathematics": "Mathematics",
     "math": "Mathematics",
+    "calculus": "Mathematics",
+    "statistics": "Mathematics",
+
     "computer science": "Computer Science",
-    "computer": "Computer Science",
     "programming": "Computer Science",
+    "programming fundamentals": "Computer Science",
+    "data structures": "Computer Science",
+    "database": "Computer Science",
+    "database systems": "Computer Science",
+    "artificial intelligence": "Computer Science",
+
     "english": "English / Language",
-    "english language": "English / Language",
-    "language": "English / Language",
+    "english i": "English / Language",
+    "english ii": "English / Language",
+    "academic writing": "English / Language",
+    "communication skills": "English / Language",
+
     "literature": "Literature",
+    "english literature": "Literature",
+
     "business": "Business / Management",
     "management": "Business / Management",
+    "principles of management": "Business / Management",
+    "marketing": "Business / Management",
+
     "accounting": "Accounting / Finance",
+    "financial accounting": "Accounting / Finance",
     "finance": "Accounting / Finance",
+
     "economics": "Economics",
+    "microeconomics": "Economics",
+    "macroeconomics": "Economics",
+
     "engineering": "Engineering",
+    "mechanical engineering": "Engineering",
+    "electrical engineering": "Engineering",
+    "civil engineering": "Engineering",
+
+    "biology": "Biology",
+    "general biology": "Biology",
+
     "psychology": "Psychology",
     "sociology": "Sociology",
     "education": "Education",
@@ -306,305 +370,1122 @@ DOMAIN_ALIASES = {
     "medicine": "Medical / Health Sciences",
     "medical": "Medical / Health Sciences",
     "health sciences": "Medical / Health Sciences",
-    "environmental science": "Environmental Science"
+    "environmental science": "Environmental Science",
 }
 
 
 # ============================================================
-# TEXT UTILITIES
+# STOP WORDS
 # ============================================================
 
-def clean_text(text):
+STOP_WORDS = {
+    "the", "a", "an", "and", "or", "but", "of", "to", "in",
+    "on", "for", "with", "from", "by", "is", "are", "was",
+    "were", "be", "been", "being", "as", "at", "that", "this",
+    "these", "those", "it", "its", "their", "they", "them",
+    "he", "she", "his", "her", "you", "your", "we", "our",
+    "which", "what", "when", "where", "why", "how", "who",
+    "does", "do", "did", "can", "could", "would", "should",
+    "will", "may", "might", "must", "than", "then", "also",
+    "into", "through", "using", "given", "following",
+    "according", "each", "any", "all", "some", "such",
+    "question", "questions", "answer", "answers"
+}
+
+
+# ============================================================
+# TEXT NORMALIZATION
+# ============================================================
+
+def normalize_inline(text):
     if text is None:
         return ""
 
     text = str(text)
-    text = text.replace("\x00", " ")
-    text = text.replace("\u00a0", " ")
-    text = text.replace("–", "-")
-    text = text.replace("—", "-")
-    text = text.replace("“", '"')
-    text = text.replace("”", '"')
-    text = text.replace("’", "'")
+
+    replacements = {
+        "\u00a0": " ",
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+    }
+
+    for old, new in replacements.items():
+        text = text.replace(old, new)
 
     text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
 
     return text.strip()
 
 
-def normalize(text):
-    text = clean_text(text).lower()
-    text = re.sub(r"[^a-z0-9\s]", " ", text)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
+def normalize_document(text):
+    if not text:
+        return ""
+
+    lines = []
+
+    for line in str(text).splitlines():
+        line = normalize_inline(line)
+
+        if line:
+            lines.append(line)
+
+    return "\n".join(lines)
 
 
-def stem(word):
+def tokenize(text):
+    words = re.findall(
+        r"[A-Za-z][A-Za-z0-9'-]*",
+        str(text).lower()
+    )
+
+    result = []
+
+    for word in words:
+        word = re.sub(
+            r"[^a-z0-9]+",
+            "",
+            word.lower()
+        )
+
+        if len(word) <= 2:
+            continue
+
+        if word in STOP_WORDS:
+            continue
+
+        result.append(word)
+
+    return result
+
+
+def simple_stem(word):
     word = word.lower()
 
     suffixes = [
-        "ingly",
-        "edly",
-        "ing",
-        "tion",
-        "sion",
+        "ization",
+        "isation",
+        "ational",
+        "fulness",
+        "ousness",
+        "iveness",
         "ment",
         "ness",
+        "tion",
+        "sion",
+        "ing",
+        "ed",
         "ies",
         "es",
-        "s"
+        "s",
     ]
 
     for suffix in suffixes:
-        if len(word) > len(suffix) + 3 and word.endswith(suffix):
-            if suffix == "ies":
-                return word[:-3] + "y"
+        if (
+            word.endswith(suffix)
+            and len(word) > len(suffix) + 3
+        ):
             return word[:-len(suffix)]
 
     return word
 
 
-def content_tokens(text):
-    words = normalize(text).split()
+def stem_set(text):
+    result = set()
 
-    result = []
+    for word in tokenize(text):
+        stem = simple_stem(word)
 
-    for word in words:
-        if word in STOP_WORDS:
-            continue
+        if len(stem) > 2:
+            result.add(stem)
 
-        if len(word) < 3:
-            continue
+    return result
 
-        result.append(stem(word))
 
-    return set(result)
+def overlap_score(text_a, text_b):
+    a = stem_set(text_a)
+    b = stem_set(text_b)
+
+    if not a or not b:
+        return 0.0
+
+    common = a & b
+
+    precision = len(common) / len(a)
+    recall = len(common) / len(b)
+
+    if precision + recall == 0:
+        return 0.0
+
+    f1 = (
+        2 * precision * recall
+        / (precision + recall)
+    )
+
+    return round(f1 * 100, 1)
 
 
 # ============================================================
-# OCR / FILE READING
+# METADATA DETECTION
 # ============================================================
 
-def tesseract_available():
-    if pytesseract is None:
-        return False
+def looks_like_date_or_time(text):
+    value = normalize_inline(text).lower()
 
-    try:
-        pytesseract.get_tesseract_version()
+    patterns = [
+        r"^\d{1,2}/\d{1,2}/\d{2,4}$",
+        r"^\d{1,2}-\d{1,2}-\d{2,4}$",
+        r"^\d{1,2}:\d{2}\s*(am|pm)?$",
+        r"^\d{1,2}/\d{1,2}$",
+        r"^\d{1,2}:\d{2}\s*(am|pm)?\s+.*$",
+        r"^\d{1,2}\s*(am|pm)$",
+    ]
+
+    return any(
+        re.fullmatch(pattern, value)
+        for pattern in patterns
+    )
+
+
+def looks_like_page_marker(text):
+    value = normalize_inline(text).lower()
+
+    patterns = [
+        r"^\d+\s*/\s*\d+$",
+        r"^page\s+\d+$",
+        r"^page\s+\d+\s+of\s+\d+$",
+        r"^\d+\s+of\s+\d+$",
+        r"^p\.\s*\d+$",
+    ]
+
+    return any(
+        re.fullmatch(pattern, value)
+        for pattern in patterns
+    )
+
+
+def looks_like_metadata(text):
+    value = normalize_inline(text)
+
+    if not value:
         return True
-    except Exception:
+
+    lower = value.lower()
+
+    if looks_like_date_or_time(value):
+        return True
+
+    if looks_like_page_marker(value):
+        return True
+
+    patterns = [
+        r"questionwell",
+        r"question\s*set",
+        r"generated\s+by",
+        r"created\s+with",
+        r"created\s+on",
+        r"exported\s+on",
+        r"downloaded\s+on",
+        r"general\s+chemistry\s*\+",
+        r"copyright",
+        r"www\.",
+        r"https?://",
+        r"page\s+\d+",
+        r"student\s+name",
+        r"roll\s+number",
+        r"registration\s+number",
+        r"date\s*:",
+        r"time\s*:",
+        r"instructor\s*:",
+        r"teacher\s*:",
+        r"course\s*:",
+        r"section\s*:",
+    ]
+
+    for pattern in patterns:
+        if re.search(pattern, lower):
+            return True
+
+    if re.fullmatch(r"[\d\s./_-]+", value):
+        return True
+
+    return False
+
+
+def looks_like_heading(text):
+    value = normalize_inline(text)
+
+    if not value:
+        return True
+
+    lower = value.lower()
+
+    headings = {
+        "general chemistry",
+        "question set",
+        "multiple choice questions",
+        "multiple choice",
+        "short questions",
+        "short answer questions",
+        "long questions",
+        "essay questions",
+        "true false",
+        "true/false",
+        "section a",
+        "section b",
+        "section c",
+        "instructions",
+        "learning outcomes",
+        "course learning outcomes",
+        "assessment",
+        "quiz",
+        "midterm",
+        "final examination",
+        "examination",
+        "answer key",
+        "references",
+    }
+
+    if lower in headings:
+        return True
+
+    if (
+        lower.startswith("section ")
+        and len(value.split()) <= 8
+    ):
+        return True
+
+    if (
+        lower.startswith("chapter ")
+        and len(value.split()) <= 8
+    ):
+        return True
+
+    if (
+        lower.startswith("unit ")
+        and len(value.split()) <= 8
+    ):
+        return True
+
+    if (
+        value.endswith(":")
+        and len(value.split()) <= 12
+    ):
+        return True
+
+    return False
+
+
+# ============================================================
+# QUESTION EXTRACTION
+# ============================================================
+
+QUESTION_NUMBER_PATTERN = re.compile(
+    r"^\s*(?:Q(?:uestion)?\s*)?"
+    r"(\d{1,3})\s*[\.\):\-]\s*(.+)$",
+    re.IGNORECASE
+)
+
+Q_PATTERN = re.compile(
+    r"^\s*Q(?:uestion)?\s*(\d{1,3})"
+    r"\s*[:\.\)\-]\s*(.+)$",
+    re.IGNORECASE
+)
+
+OPTION_PATTERN = re.compile(
+    r"^\s*[\(\[]?([A-Ha-h])[\)\].:\-]\s+(.+)$"
+)
+
+
+def remove_question_prefix(text):
+    value = normalize_inline(text)
+
+    patterns = [
+        r"^\s*Q(?:uestion)?\s*\d{1,3}\s*[:\.\)\-]\s*",
+        r"^\s*\(?\d{1,3}\)?\s*[\.\):\-]\s*",
+    ]
+
+    for pattern in patterns:
+        value = re.sub(
+            pattern,
+            "",
+            value,
+            flags=re.IGNORECASE
+        )
+
+    return value.strip()
+
+
+def has_bloom_verb(text):
+    lower = text.lower()
+
+    for verbs in BLOOM_VERBS.values():
+        for verb in verbs:
+            if re.search(
+                r"\b" + re.escape(verb) + r"\b",
+                lower
+            ):
+                return True
+
+    return False
+
+
+def has_question_structure(text):
+    lower = text.lower()
+
+    if "?" in text:
+        return True
+
+    patterns = [
+        r"\bwhat\b",
+        r"\bwhy\b",
+        r"\bhow\b",
+        r"\bwhich\b",
+        r"\bwho\b",
+        r"\bwhere\b",
+        r"\bwhen\b",
+        r"\bcalculate\b",
+        r"\bcompute\b",
+        r"\bsolve\b",
+        r"\bdetermine\b",
+        r"\bexplain\b",
+        r"\bdefine\b",
+        r"\bidentify\b",
+        r"\bdescribe\b",
+        r"\bcompare\b",
+        r"\banalyze\b",
+        r"\banalyse\b",
+        r"\bevaluate\b",
+        r"\bjustify\b",
+        r"\bdesign\b",
+        r"\bderive\b",
+        r"\bdiscuss\b",
+        r"\bconstruct\b",
+    ]
+
+    return any(
+        re.search(pattern, lower)
+        for pattern in patterns
+    )
+
+
+def is_genuine_question(text):
+    value = remove_question_prefix(text)
+
+    if not value:
         return False
 
+    if looks_like_metadata(value):
+        return False
 
-def render_page(page):
-    if fitz is None or Image is None:
-        return None
+    if looks_like_heading(value):
+        return False
 
-    try:
-        matrix = fitz.Matrix(2.5, 2.5)
-        pix = page.get_pixmap(
-            matrix=matrix,
-            colorspace=fitz.csRGB,
-            alpha=False
+    if len(value.split()) < 5:
+        return False
+
+    return (
+        has_question_structure(value)
+        or has_bloom_verb(value)
+    )
+
+
+def remove_repeated_lines(lines):
+    counts = Counter()
+
+    normalized_lines = []
+
+    for line in lines:
+        clean = normalize_inline(line)
+
+        if not clean:
+            continue
+
+        normalized = re.sub(
+            r"\d+",
+            "#",
+            clean.lower()
         )
 
-        image = Image.frombytes(
-            "RGB",
-            [pix.width, pix.height],
-            pix.samples
+        counts[normalized] += 1
+        normalized_lines.append(
+            (clean, normalized)
         )
 
-        image = ImageOps.grayscale(image)
-        image = ImageOps.autocontrast(image)
+    output = []
 
-        return image
+    for clean, normalized in normalized_lines:
 
-    except Exception:
-        return None
+        if counts[normalized] >= 3:
+            continue
+
+        output.append(clean)
+
+    return output
 
 
-def ocr_image(image):
-    if pytesseract is None or image is None:
-        return ""
+def extract_questions(text):
+    document = normalize_document(text)
 
-    try:
-        text = pytesseract.image_to_string(
-            image,
-            config="--psm 6"
+    if not document:
+        return []
+
+    lines = document.splitlines()
+
+    lines = remove_repeated_lines(lines)
+
+    questions = []
+
+    current = None
+
+    def save_current():
+        nonlocal current
+
+        if current is None:
+            return
+
+        question_text = normalize_inline(
+            current["text"]
         )
-        return clean_text(text)
-    except Exception:
-        return ""
+
+        if not is_genuine_question(
+            question_text
+        ):
+            current = None
+            return
+
+        question_text = remove_question_prefix(
+            question_text
+        )
+
+        options = current.get(
+            "options",
+            []
+        )
+
+        if len(options) >= 2:
+            question_text += "\n" + "\n".join(
+                options
+            )
+
+        if len(question_text.split()) >= 5:
+            questions.append(
+                {
+                    "number": current.get(
+                        "number",
+                        ""
+                    ),
+                    "text": question_text,
+                    "options": options,
+                }
+            )
+
+        current = None
+
+    for line in lines:
+
+        line = normalize_inline(line)
+
+        if not line:
+            continue
+
+        # ----------------------------------------------------
+        # Metadata and headings are ignored.
+        # ----------------------------------------------------
+
+        if looks_like_metadata(line):
+            continue
+
+        if looks_like_heading(line):
+            continue
+
+        # ----------------------------------------------------
+        # Numbered question.
+        # ----------------------------------------------------
+
+        match = QUESTION_NUMBER_PATTERN.match(
+            line
+        )
+
+        if match:
+
+            candidate = match.group(2).strip()
+
+            if is_genuine_question(
+                candidate
+            ):
+
+                save_current()
+
+                current = {
+                    "number": match.group(1),
+                    "text": candidate,
+                    "options": [],
+                }
+
+                continue
+
+        # ----------------------------------------------------
+        # Q1, Q2, etc.
+        # ----------------------------------------------------
+
+        qmatch = Q_PATTERN.match(
+            line
+        )
+
+        if qmatch:
+
+            candidate = qmatch.group(2).strip()
+
+            if is_genuine_question(
+                candidate
+            ):
+
+                save_current()
+
+                current = {
+                    "number": qmatch.group(1),
+                    "text": candidate,
+                    "options": [],
+                }
+
+                continue
+
+        # ----------------------------------------------------
+        # Options.
+        # ----------------------------------------------------
+
+        option_match = OPTION_PATTERN.match(
+            line
+        )
+
+        if option_match and current:
+
+            option = (
+                option_match.group(1).upper()
+                + ". "
+                + option_match.group(2).strip()
+            )
+
+            current["options"].append(
+                option
+            )
+
+            continue
+
+        # ----------------------------------------------------
+        # Standalone question.
+        # ----------------------------------------------------
+
+        if (
+            line.endswith("?")
+            and is_genuine_question(line)
+        ):
+
+            save_current()
+
+            current = {
+                "number": "",
+                "text": line,
+                "options": [],
+            }
+
+            continue
+
+        # ----------------------------------------------------
+        # Continuation.
+        # ----------------------------------------------------
+
+        if current:
+
+            if not looks_like_metadata(line):
+
+                current["text"] += " " + line
+
+                if line.endswith("?"):
+                    save_current()
+
+    save_current()
+
+    # --------------------------------------------------------
+    # Remove duplicates.
+    # --------------------------------------------------------
+
+    unique = []
+    seen = set()
+
+    for item in questions:
+
+        key = re.sub(
+            r"\s+",
+            " ",
+            item["text"].lower()
+        ).strip()
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        unique.append(item)
+
+    return unique
 
 
-def read_pdf(uploaded_file):
-    if fitz is None:
-        return "", "PyMuPDF is not installed."
+# ============================================================
+# PDF OCR
+# ============================================================
 
+def pdf_has_embedded_text(file_bytes):
     try:
-        data = uploaded_file.read()
+        import fitz
 
         document = fitz.open(
-            stream=data,
+            stream=file_bytes,
             filetype="pdf"
         )
 
-        pages = []
-        ocr_pages = 0
+        total_pages = len(document)
+
+        pages_with_text = 0
 
         for page in document:
-            text = clean_text(page.get_text("text"))
 
-            # OCR scanned/poor-text page
-            if len(re.sub(r"\s+", "", text)) < 80:
-                if tesseract_available():
-                    image = render_page(page)
+            text = page.get_text(
+                "text"
+            ).strip()
 
-                    if image is not None:
-                        ocr_text = ocr_image(image)
-
-                        if len(ocr_text) > len(text):
-                            text = ocr_text
-                            ocr_pages += 1
-
-            if text:
-                pages.append(text)
+            if len(text) >= 30:
+                pages_with_text += 1
 
         document.close()
 
-        full_text = "\n\n".join(pages)
+        if total_pages == 0:
+            return False
 
-        info = f"PDF read successfully. OCR used on {ocr_pages} page(s)."
+        return (
+            pages_with_text / total_pages
+        ) >= 0.30
 
-        return full_text, info
-
-    except Exception as e:
-        return "", f"Could not read PDF: {e}"
+    except Exception:
+        return False
 
 
-def read_docx(uploaded_file):
-    if Document is None:
-        return "", "python-docx is not installed."
+def ocr_pdf(file_bytes):
+    try:
+        import fitz
+    except ImportError:
+        st.error(
+            "PyMuPDF is not installed."
+        )
+        return ""
 
     try:
+        import pytesseract
+    except ImportError:
+        st.error(
+            "pytesseract is not installed."
+        )
+        return ""
+
+    try:
+        from PIL import Image
+    except ImportError:
+        st.error(
+            "Pillow is not installed."
+        )
+        return ""
+
+    try:
+        # Check whether Tesseract itself is available.
+        try:
+            version = pytesseract.get_tesseract_version()
+        except Exception:
+            st.error(
+                "Tesseract OCR engine is not available. "
+                "Add tesseract-ocr and tesseract-ocr-eng "
+                "to packages.txt and redeploy the app."
+            )
+            return ""
+
+        document = fitz.open(
+            stream=file_bytes,
+            filetype="pdf"
+        )
+
+        total_pages = len(document)
+
+        if total_pages == 0:
+            document.close()
+            return ""
+
+        progress = st.progress(
+            0,
+            text="Starting OCR..."
+        )
+
+        ocr_pages = []
+
+        for page_number, page in enumerate(
+            document
+        ):
+
+            progress_value = int(
+                (
+                    page_number
+                    / total_pages
+                ) * 100
+            )
+
+            progress.progress(
+                progress_value,
+                text=(
+                    f"OCR: processing page "
+                    f"{page_number + 1} of "
+                    f"{total_pages}"
+                ),
+            )
+
+            # 300 DPI equivalent rendering.
+            zoom = 2.5
+
+            matrix = fitz.Matrix(
+                zoom,
+                zoom
+            )
+
+            pixmap = page.get_pixmap(
+                matrix=matrix,
+                alpha=False
+            )
+
+            image_bytes = pixmap.tobytes(
+                "png"
+            )
+
+            image = Image.open(
+                io.BytesIO(image_bytes)
+            )
+
+            # OCR with normal English model.
+            page_text = pytesseract.image_to_string(
+                image,
+                lang="eng",
+                config="--psm 6"
+            )
+
+            if page_text.strip():
+                ocr_pages.append(
+                    page_text
+                )
+
+        document.close()
+
+        progress.progress(
+            100,
+            text="OCR completed."
+        )
+
+        return "\n".join(
+            ocr_pages
+        )
+
+    except Exception as error:
+        st.error(
+            "OCR failed: " + str(error)
+        )
+        return ""
+
+
+def read_pdf(file_bytes):
+    # ========================================================
+    # 1. Try pypdf
+    # ========================================================
+
+    text_parts = []
+
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(
+            io.BytesIO(file_bytes)
+        )
+
+        for page in reader.pages:
+
+            try:
+                text = (
+                    page.extract_text()
+                    or ""
+                )
+
+                if text.strip():
+                    text_parts.append(
+                        text
+                    )
+
+            except Exception:
+                continue
+
+        extracted = "\n".join(
+            text_parts
+        ).strip()
+
+        if len(extracted) >= 100:
+            return extracted, "Embedded PDF text"
+
+    except Exception:
+        pass
+
+
+    # ========================================================
+    # 2. Try PyMuPDF
+    # ========================================================
+
+    text_parts = []
+
+    try:
+        import fitz
+
+        document = fitz.open(
+            stream=file_bytes,
+            filetype="pdf"
+        )
+
+        for page in document:
+
+            try:
+                text = (
+                    page.get_text(
+                        "text"
+                    )
+                    or ""
+                )
+
+                if text.strip():
+                    text_parts.append(
+                        text
+                    )
+
+            except Exception:
+                continue
+
+        document.close()
+
+        extracted = "\n".join(
+            text_parts
+        ).strip()
+
+        if len(extracted) >= 100:
+            return extracted, "PyMuPDF text"
+
+    except Exception:
+        pass
+
+
+    # ========================================================
+    # 3. OCR
+    # ========================================================
+
+    st.info(
+        "This PDF appears to be scanned or contains insufficient "
+        "embedded text. OCR is being used automatically."
+    )
+
+    ocr_text = ocr_pdf(
+        file_bytes
+    )
+
+    if ocr_text.strip():
+        return ocr_text, "OCR"
+
+    return "", "Failed"
+
+
+# ============================================================
+# DOCX / EXCEL / CSV
+# ============================================================
+
+def read_docx(file_bytes):
+    try:
+        from docx import Document
+
         document = Document(
-            io.BytesIO(uploaded_file.read())
+            io.BytesIO(file_bytes)
         )
 
         parts = []
 
         for paragraph in document.paragraphs:
-            text = clean_text(paragraph.text)
+
+            text = normalize_inline(
+                paragraph.text
+            )
 
             if text:
                 parts.append(text)
 
         for table in document.tables:
+
             for row in table.rows:
+
                 cells = []
 
                 for cell in row.cells:
-                    value = clean_text(cell.text)
+
+                    value = normalize_inline(
+                        cell.text
+                    )
 
                     if value:
-                        cells.append(value)
+                        cells.append(
+                            value
+                        )
 
                 if cells:
-                    parts.append(" | ".join(cells))
+                    parts.append(
+                        " | ".join(cells)
+                    )
 
-        return "\n".join(parts), "DOCX read successfully."
+        return "\n".join(parts)
 
-    except Exception as e:
-        return "", f"Could not read DOCX: {e}"
+    except Exception as error:
+        st.error(
+            "DOCX could not be read: "
+            + str(error)
+        )
+
+        return ""
 
 
-def read_excel(uploaded_file):
+def read_excel(file_bytes):
     try:
-        data = uploaded_file.read()
-
-        sheets = pd.read_excel(
-            io.BytesIO(data),
-            sheet_name=None,
-            header=None
+        workbook = pd.ExcelFile(
+            io.BytesIO(file_bytes)
         )
 
         parts = []
 
-        for sheet_name, dataframe in sheets.items():
+        for sheet in workbook.sheet_names:
 
-            parts.append(f"Sheet: {sheet_name}")
-
-            for row in dataframe.fillna("").astype(str).values:
-                row_text = " ".join(
-                    str(x).strip()
-                    for x in row
-                    if str(x).strip()
-                )
-
-                if row_text:
-                    parts.append(row_text)
-
-        return "\n".join(parts), "Excel file read successfully."
-
-    except Exception as e:
-        return "", f"Could not read Excel file: {e}"
-
-
-def read_csv(uploaded_file):
-    try:
-        dataframe = pd.read_csv(
-            uploaded_file
-        )
-
-        dataframe = dataframe.fillna("").astype(str)
-
-        parts = []
-
-        for row in dataframe.values:
-            row_text = " ".join(
-                str(x).strip()
-                for x in row
-                if str(x).strip()
+            parts.append(
+                f"Sheet: {sheet}"
             )
 
-            if row_text:
-                parts.append(row_text)
+            dataframe = pd.read_excel(
+                io.BytesIO(file_bytes),
+                sheet_name=sheet,
+                header=None
+            )
 
-        return "\n".join(parts), "CSV file read successfully."
+            for row in dataframe.fillna("").values:
 
-    except Exception as e:
-        return "", f"Could not read CSV file: {e}"
+                values = []
+
+                for value in row:
+
+                    value = normalize_inline(
+                        value
+                    )
+
+                    if value:
+                        values.append(
+                            value
+                        )
+
+                if values:
+                    parts.append(
+                        " ".join(values)
+                    )
+
+        return "\n".join(parts)
+
+    except Exception as error:
+
+        st.error(
+            "Excel file could not be read: "
+            + str(error)
+        )
+
+        return ""
 
 
-def read_file(uploaded_file):
+def read_uploaded_file(uploaded_file):
     filename = uploaded_file.name.lower()
 
+    file_bytes = uploaded_file.getvalue()
+
     if filename.endswith(".pdf"):
-        return read_pdf(uploaded_file)
+        return read_pdf(
+            file_bytes
+        )
 
     if filename.endswith(".docx"):
-        return read_docx(uploaded_file)
+        return (
+            read_docx(file_bytes),
+            "DOCX"
+        )
 
-    if filename.endswith(".xlsx") or filename.endswith(".xls"):
-        return read_excel(uploaded_file)
+    if filename.endswith(
+        (".xlsx", ".xls")
+    ):
+        return (
+            read_excel(file_bytes),
+            "Excel"
+        )
 
     if filename.endswith(".csv"):
-        return read_csv(uploaded_file)
 
-    try:
-        content = uploaded_file.read()
+        try:
 
-        if isinstance(content, bytes):
-            content = content.decode(
-                "utf-8",
-                errors="ignore"
+            dataframe = pd.read_csv(
+                io.BytesIO(file_bytes),
+                header=None
             )
 
-        return clean_text(content), "Text file read successfully."
+            rows = []
 
-    except Exception as e:
-        return "", f"Could not read file: {e}"
+            for row in dataframe.fillna("").values:
+
+                values = []
+
+                for value in row:
+
+                    value = normalize_inline(
+                        value
+                    )
+
+                    if value:
+                        values.append(
+                            value
+                        )
+
+                if values:
+                    rows.append(
+                        " ".join(values)
+                    )
+
+            return (
+                "\n".join(rows),
+                "CSV"
+            )
+
+        except Exception:
+            return "", "Failed"
+
+    try:
+        return (
+            file_bytes.decode(
+                "utf-8",
+                errors="ignore"
+            ),
+            "Text"
+        )
+
+    except Exception:
+        return "", "Failed"
 
 
 # ============================================================
@@ -612,825 +1493,1158 @@ def read_file(uploaded_file):
 # ============================================================
 
 def parse_outcomes(text, prefix):
-    text = clean_text(text)
-
-    if not text:
-        return []
-
-    lines = text.splitlines()
-
     outcomes = []
 
-    current_code = None
-    current_text = []
+    if not text:
+        return outcomes
 
     pattern = re.compile(
-        rf"\b({re.escape(prefix)}\s*[-_]?\s*\d+)\b",
+        rf"^\s*{prefix}\s*[-_ ]?"
+        rf"(\d+)\s*[:\-\)]\s*(.+)$",
         re.IGNORECASE
     )
 
-    for line in lines:
-        line = clean_text(line)
+    for line in text.splitlines():
 
-        if not line:
-            continue
-
-        match = pattern.search(line)
+        match = pattern.match(
+            line.strip()
+        )
 
         if match:
-            if current_code and current_text:
-                outcomes.append({
-                    "code": current_code.upper(),
-                    "text": " ".join(current_text).strip()
-                })
 
-            current_code = match.group(1)
-            remaining = line[match.end():].strip()
-
-            remaining = re.sub(
-                r"^[\s:\-–—.)]+",
-                "",
-                remaining
+            description = normalize_inline(
+                match.group(2)
             )
 
-            current_text = [remaining] if remaining else []
+            if description:
 
-        elif current_code:
-            current_text.append(line)
-
-    if current_code and current_text:
-        outcomes.append({
-            "code": current_code.upper(),
-            "text": " ".join(current_text).strip()
-        })
+                outcomes.append(
+                    {
+                        "id": (
+                            f"{prefix.upper()}"
+                            f"{match.group(1)}"
+                        ),
+                        "text": description
+                    }
+                )
 
     return outcomes
 
 
 # ============================================================
-# QUESTION EXTRACTION
+# SUBJECT DETECTION
 # ============================================================
 
-PAGE_MARKER_RE = re.compile(
-    r"^\s*(?:page\s*)?\d+\s*(?:of\s*\d+)?\s*$",
-    re.IGNORECASE
-)
-
-TIME_RE = re.compile(
-    r"^\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm)?\s*$",
-    re.IGNORECASE
-)
-
-DATE_RE = re.compile(
-    r"^\s*(?:"
-    r"\d{1,4}[-/]\d{1,2}[-/]\d{1,4}"
-    r"|"
-    r"\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{2,4}"
-    r"|"
-    r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4}"
-    r")\s*$",
-    re.IGNORECASE
-)
-
-NUMBERED_QUESTION_RE = re.compile(
-    r"^\s*"
-    r"(?:Q(?:uestion)?\s*)?"
-    r"(\d{1,3})"
-    r"\s*[\.\):\-]\s*"
-    r"(.+?)"
-    r"\s*$",
-    re.IGNORECASE
-)
-
-OPTION_RE = re.compile(
-    r"^\s*(?:\([A-H]\)|[A-H][\.\):]|[A-H]\s+-)\s+",
-    re.IGNORECASE
-)
-
-
-QUESTION_START_VERBS = {
-    "define",
-    "explain",
-    "describe",
-    "discuss",
-    "identify",
-    "list",
-    "state",
-    "compare",
-    "contrast",
-    "analyze",
-    "analyse",
-    "evaluate",
-    "assess",
-    "justify",
-    "calculate",
-    "solve",
-    "find",
-    "determine",
-    "derive",
-    "apply",
-    "use",
-    "demonstrate",
-    "interpret",
-    "classify",
-    "differentiate",
-    "examine",
-    "investigate",
-    "design",
-    "develop",
-    "create",
-    "construct",
-    "formulate",
-    "propose",
-    "write",
-    "summarize",
-    "summarise",
-    "critique",
-    "discuss",
-    "illustrate",
-    "show",
-    "prove",
-    "compute",
-    "predict",
-    "identify",
-    "mention",
-    "outline"
-}
-
-
-def is_metadata(line):
-    text = clean_text(line)
-
-    if not text:
-        return True
-
-    lower = text.lower()
-
-    if PAGE_MARKER_RE.match(text):
-        return True
-
-    if TIME_RE.match(text):
-        return True
-
-    if DATE_RE.match(text):
-        return True
-
-    # Examples such as /19/26, 19/26, 2026/19
-    if re.fullmatch(r"[\d\s/\\_.-]+", text):
-        if "/" in text or "\\" in text:
-            return True
-
-    # Common document metadata
-    metadata_phrases = [
-        "questionwell",
-        "question set",
-        "generated by",
-        "generated on",
-        "date:",
-        "time:",
-        "page:",
-        "student name",
-        "student id",
-        "roll number",
-        "registration number",
-        "course instructor",
-        "instructor:",
-        "teacher:",
-        "semester:",
-        "section:",
-        "university:",
-        "department:",
-        "assessment:",
-        "assessment title",
-        "total marks",
-        "maximum marks",
-        "marks:",
-        "duration:",
-        "instructions:"
-    ]
-
-    for phrase in metadata_phrases:
-        if phrase in lower:
-            return True
-
-    # Headers that are clearly not questions
-    header_phrases = [
-        "multiple choice questions",
-        "short questions",
-        "long questions",
-        "subjective questions",
-        "objective questions",
-        "assessment questions",
-        "question paper",
-        "quiz",
-        "midterm examination",
-        "final examination",
-        "examination paper"
-    ]
-
-    if lower in header_phrases:
-        return True
-
-    return False
-
-
-def is_heading(line):
-    text = clean_text(line)
-
-    if not text:
-        return True
-
-    if text.endswith(":"):
-        return True
-
-    words = text.split()
-
-    if len(words) <= 7 and not text.endswith("?"):
-        if text.isupper():
-            return True
-
-    return False
-
-
-def is_question_candidate(text):
-    text = clean_text(text)
-
-    if not text:
-        return False
-
-    if is_metadata(text):
-        return False
-
-    if len(text) < 10:
-        return False
-
-    # Direct question
-    if "?" in text:
-        return True
-
-    normalized = normalize(text)
-    words = normalized.split()
-
-    if not words:
-        return False
-
-    # Command / task question
-    if words[0] in QUESTION_START_VERBS:
-        return True
-
-    # Common question structures
-    if words[0] in {
-        "what",
-        "why",
-        "how",
-        "when",
-        "where",
-        "which",
-        "who"
-    }:
-        return True
-
-    # Useful academic instructions
-    if words[0] in {
-        "using",
-        "given",
-        "consider",
-        "calculate",
-        "suppose",
-        "assume"
-    }:
-        return True
-
-    return False
-
-
-def remove_mcq_options(text):
-    lines = text.splitlines()
-
-    cleaned = []
-
-    for line in lines:
-        line = clean_text(line)
-
-        if not line:
-            continue
-
-        if OPTION_RE.match(line):
-            continue
-
-        cleaned.append(line)
-
-    return " ".join(cleaned).strip()
-
-
-def extract_questions(text):
-    text = clean_text(text)
-
-    if not text:
-        return []
-
-    lines = [
-        clean_text(line)
-        for line in text.splitlines()
-    ]
-
-    questions = []
-
-    current = None
-    current_number = None
-
-    def save_current():
-        nonlocal current, current_number
-
-        if not current:
-            return
-
-        candidate = clean_text(" ".join(current))
-        candidate = remove_mcq_options(candidate)
-
-        if is_question_candidate(candidate):
-            questions.append({
-                "number": current_number,
-                "text": candidate
-            })
-
-        current = None
-        current_number = None
-
-    for line in lines:
-
-        if not line:
-            continue
-
-        if is_metadata(line):
-            continue
-
-        match = NUMBERED_QUESTION_RE.match(line)
-
-        if match:
-            save_current()
-
-            number = match.group(1)
-            body = clean_text(match.group(2))
-
-            if body:
-                current = [body]
-                current_number = number
-
-            continue
-
-        # Ignore obvious answer choices
-        if OPTION_RE.match(line):
-            continue
-
-        # If no numbered question has started
-        if current is None:
-
-            if is_question_candidate(line):
-                current = [line]
-                current_number = None
-
-            continue
-
-        # Avoid adding obvious headings into an existing question
-        if is_heading(line) and not line.endswith("?"):
-            continue
-
-        # Continuation of current question
-        current.append(line)
-
-        # If line itself completes a question, save it
-        if line.endswith("?"):
-            save_current()
-
-    save_current()
-
-    # Remove duplicates
-    unique = []
-    seen = set()
-
-    for q in questions:
-        normalized = normalize(q["text"])
-
-        if not normalized:
-            continue
-
-        if normalized in seen:
-            continue
-
-        seen.add(normalized)
-        unique.append(q)
-
-    # Re-number if necessary
-    for index, q in enumerate(unique, start=1):
-        if not q["number"]:
-            q["number"] = str(index)
-
-    return unique
-
-
-# ============================================================
-# DOMAIN DETECTION
-# ============================================================
-
-def detect_domain(course_name, course_content, questions):
-    combined = " ".join([
-        course_name or "",
-        course_content or "",
-        " ".join(q["text"] for q in questions[:30])
-    ])
-
-    normalized = normalize(combined)
-
-    # Explicit course name aliases get priority
-    for alias, domain in DOMAIN_ALIASES.items():
-        if alias in normalized:
-            return domain, 0.95
-
-    tokens = set(normalized.split())
+def determine_course_domain(
+    course_name,
+    clos_text,
+    plos_text,
+    assessment_text
+):
+    context = " ".join(
+        [
+            course_name or "",
+            clos_text or "",
+            plos_text or ""
+        ]
+    ).lower()
+
+    # Explicit course name gets priority.
+    for alias, domain in sorted(
+        COURSE_ALIASES.items(),
+        key=lambda x: len(x[0]),
+        reverse=True
+    ):
+
+        if alias in context:
+            return domain, 100
 
     scores = {}
 
-    for domain, vocabulary in DOMAIN_LEXICONS.items():
-        hits = len(tokens.intersection(vocabulary))
+    for domain, lexicon in DOMAIN_LEXICONS.items():
+
+        hits = 0
+
+        for term in lexicon:
+
+            if re.search(
+                r"\b"
+                + re.escape(term)
+                + r"\b",
+                context
+            ):
+                hits += 1
+
         scores[domain] = hits
 
-    if not scores:
-        return "Unknown", 0.0
+    if scores:
 
-    ordered = sorted(
+        best_domain = max(
+            scores,
+            key=scores.get
+        )
+
+        best_score = scores[
+            best_domain
+        ]
+
+        if best_score >= 3:
+
+            return (
+                best_domain,
+                min(
+                    95,
+                    50 + best_score * 10
+                )
+            )
+
+    # Assessment fallback.
+    scores = {}
+
+    for domain, lexicon in DOMAIN_LEXICONS.items():
+
+        hits = 0
+
+        for term in lexicon:
+
+            if re.search(
+                r"\b"
+                + re.escape(term)
+                + r"\b",
+                assessment_text.lower()
+            ):
+                hits += 1
+
+        scores[domain] = hits
+
+    if scores:
+
+        best_domain = max(
+            scores,
+            key=scores.get
+        )
+
+        best_score = scores[
+            best_domain
+        ]
+
+        if best_score >= 4:
+
+            return (
+                best_domain,
+                min(
+                    80,
+                    40 + best_score * 8
+                )
+            )
+
+    return "Unknown", 0
+
+
+def domain_hits(text, domain):
+    hits = []
+
+    if domain not in DOMAIN_LEXICONS:
+        return hits
+
+    lower = text.lower()
+
+    for term in DOMAIN_LEXICONS[domain]:
+
+        if re.search(
+            r"\b"
+            + re.escape(term)
+            + r"\b",
+            lower
+        ):
+            hits.append(term)
+
+    return sorted(
+        set(hits)
+    )
+
+
+def question_subject_check(
+    question,
+    expected_domain
+):
+    if expected_domain == "Unknown":
+
+        return {
+            "status": "REVIEW",
+            "score": 40,
+            "detected_domain": "Unknown",
+            "evidence": [],
+            "reason": (
+                "The selected course does not provide "
+                "enough information to establish the subject."
+            )
+        }
+
+    scores = {}
+
+    for domain in DOMAIN_LEXICONS:
+
+        scores[domain] = len(
+            domain_hits(
+                question,
+                domain
+            )
+        )
+
+    expected_score = scores.get(
+        expected_domain,
+        0
+    )
+
+    sorted_domains = sorted(
         scores.items(),
         key=lambda x: x[1],
         reverse=True
     )
 
-    best_domain, best_score = ordered[0]
+    strongest_domain = (
+        sorted_domains[0][0]
+        if sorted_domains
+        else "Unknown"
+    )
 
-    if best_score == 0:
-        return "Unknown", 0.0
+    strongest_score = (
+        sorted_domains[0][1]
+        if sorted_domains
+        else 0
+    )
 
-    total = sum(scores.values())
-
-    confidence = best_score / max(total, 1)
-
-    return best_domain, confidence
-
-
-def check_subject(question, selected_domain, course_content):
-    if selected_domain == "Unknown":
-        return True, 50, "Subject could not be determined."
-
-    vocabulary = DOMAIN_LEXICONS.get(
-        selected_domain,
+    related = RELATED_DOMAINS.get(
+        expected_domain,
         set()
     )
 
-    question_tokens = set(
-        normalize(question).split()
+    related_scores = [
+        scores.get(
+            domain,
+            0
+        )
+        for domain in related
+    ]
+
+    related_score = max(
+        related_scores
+        or [0]
     )
 
-    course_tokens = set(
-        normalize(course_content).split()
+    evidence = domain_hits(
+        question,
+        expected_domain
     )
 
-    direct_hits = question_tokens.intersection(vocabulary)
+    # Strong contradiction.
+    if (
+        strongest_domain != expected_domain
+        and strongest_domain not in related
+        and strongest_score >= 3
+        and strongest_score >= expected_score + 2
+    ):
 
-    course_hits = question_tokens.intersection(
-        course_tokens
-    )
+        return {
+            "status": "FAIL",
+            "score": 0,
+            "detected_domain": strongest_domain,
+            "evidence": domain_hits(
+                question,
+                strongest_domain
+            ),
+            "reason": (
+                f"The question contains stronger evidence "
+                f"for {strongest_domain} than for "
+                f"{expected_domain}."
+            )
+        }
 
-    # Strong domain evidence
-    domain_score = min(
-        100,
-        len(direct_hits) * 25
-    )
+    if expected_score >= 3:
 
-    # Course-content evidence
-    course_score = min(
-        100,
-        len(course_hits) * 15
-    )
+        return {
+            "status": "PASS",
+            "score": 100,
+            "detected_domain": expected_domain,
+            "evidence": evidence,
+            "reason": (
+                f"Strong {expected_domain} content evidence "
+                f"was found."
+            )
+        }
 
-    combined = max(
-        domain_score,
-        course_score
-    )
+    if expected_score >= 1:
 
-    # Explicitly reject clear mismatch
-    if len(direct_hits) >= 2:
-        return True, min(100, max(70, combined)), \
-            f"Relevant {selected_domain} terminology detected."
+        return {
+            "status": "PASS",
+            "score": 80,
+            "detected_domain": expected_domain,
+            "evidence": evidence,
+            "reason": (
+                f"The question contains identifiable "
+                f"{expected_domain} content."
+            )
+        }
 
-    if len(direct_hits) == 1 and len(course_hits) >= 1:
-        return True, 65, \
-            f"Question has {selected_domain} and course-content evidence."
+    if related_score >= 2:
 
-    if len(course_hits) >= 2:
-        return True, 60, \
-            "Question shares important terms with the course content."
-
-    return False, combined, \
-        f"Insufficient evidence that the question belongs to {selected_domain}."
-
-
-# ============================================================
-# CLO / PLO ALIGNMENT
-# ============================================================
-
-def outcome_score(question, outcome_text):
-    q_tokens = content_tokens(question)
-    o_tokens = content_tokens(outcome_text)
-
-    if not q_tokens or not o_tokens:
-        return 0
-
-    overlap = q_tokens.intersection(o_tokens)
-
-    if not overlap:
-        return 0
-
-    # Weighted overlap
-    score_1 = len(overlap) / max(len(q_tokens), 1)
-    score_2 = len(overlap) / max(len(o_tokens), 1)
-
-    score = (
-        score_1 * 60
-        +
-        score_2 * 40
-    )
-
-    return round(min(100, score), 1)
-
-
-def best_outcome(question, outcomes):
-    if not outcomes:
-        return None, 0
-
-    scored = []
-
-    for outcome in outcomes:
-        score = outcome_score(
-            question,
-            outcome["text"]
+        related_domain = max(
+            related,
+            key=lambda d: scores.get(
+                d,
+                0
+            )
         )
 
-        scored.append(
-            (score, outcome)
+        return {
+            "status": "REVIEW",
+            "score": 60,
+            "detected_domain": related_domain,
+            "evidence": domain_hits(
+                question,
+                related_domain
+            ),
+            "reason": (
+                f"The question appears related to "
+                f"{related_domain}, but the evidence "
+                f"is insufficient to automatically confirm "
+                f"{expected_domain}."
+            )
+        }
+
+    return {
+        "status": "REVIEW",
+        "score": 30,
+        "detected_domain": (
+            strongest_domain
+            if strongest_score
+            else "Unknown"
+        ),
+        "evidence": (
+            domain_hits(
+                question,
+                strongest_domain
+            )
+            if strongest_score
+            else []
+        ),
+        "reason": (
+            f"Insufficient subject-specific evidence "
+            f"to automatically confirm that this question "
+            f"belongs to {expected_domain}."
         )
-
-    scored.sort(
-        key=lambda x: x[0],
-        reverse=True
-    )
-
-    best_score, best = scored[0]
-
-    return best, best_score
+    }
 
 
 # ============================================================
-# BLOOM DETECTION
+# BLOOM ANALYSIS
 # ============================================================
 
 def detect_bloom(question):
-    normalized = normalize(question)
-    words = normalized.split()
+    lower = question.lower()
 
     matches = []
 
     for level, verbs in BLOOM_VERBS.items():
 
         for verb in verbs:
-            if verb in words:
+
+            if re.search(
+                r"\b"
+                + re.escape(verb)
+                + r"\b",
+                lower
+            ):
+
                 matches.append(
-                    (level, verb)
+                    {
+                        "level": level,
+                        "verb": verb
+                    }
+                )
+
+    if re.search(
+        r"\b"
+        r"(calculate|compute|solve|determine|derive)"
+        r"\b",
+        lower
+    ):
+
+        matches.append(
+            {
+                "level": "Apply",
+                "verb": "problem solving"
+            }
+        )
+
+    if re.search(
+        r"\b"
+        r"(justify|defend|critique|evaluate|assess)"
+        r"\b",
+        lower
+    ):
+
+        matches.append(
+            {
+                "level": "Evaluate",
+                "verb": "judgment"
+            }
+        )
+
+    if re.search(
+        r"\b"
+        r"(design|develop|create|formulate|propose)"
+        r"\b",
+        lower
+    ):
+
+        matches.append(
+            {
+                "level": "Create",
+                "verb": "creation/design"
+            }
+        )
+
+    if not matches:
+
+        return {
+            "level": "Unknown",
+            "confidence": 0,
+            "evidence": []
+        }
+
+    # Highest cognitive operation.
+    highest_rank = max(
+        BLOOM_RANK[
+            item["level"]
+        ]
+        for item in matches
+    )
+
+    strongest = [
+        item
+        for item in matches
+        if BLOOM_RANK[
+            item["level"]
+        ] == highest_rank
+    ]
+
+    return {
+        "level": strongest[0]["level"],
+        "confidence": min(
+            100,
+            60 + len(strongest) * 10
+        ),
+        "evidence": strongest
+    }
+
+
+def bloom_alignment(
+    question,
+    intended_bloom
+):
+    detected = detect_bloom(
+        question
+    )
+
+    if detected["level"] == "Unknown":
+
+        return {
+            "status": "REVIEW",
+            "score": 40,
+            "detected": "Unknown",
+            "evidence": [],
+            "reason": (
+                "The cognitive operation could not be "
+                "determined reliably from the question."
+            )
+        }
+
+    intended_rank = BLOOM_RANK[
+        intended_bloom
+    ]
+
+    actual_rank = BLOOM_RANK[
+        detected["level"]
+    ]
+
+    difference = (
+        actual_rank
+        - intended_rank
+    )
+
+    if difference == 0:
+
+        return {
+            "status": "PASS",
+            "score": 100,
+            "detected": detected["level"],
+            "evidence": detected["evidence"],
+            "reason": (
+                f"The detected cognitive operation "
+                f"matches the entered Bloom level."
+            )
+        }
+
+    if abs(difference) == 1:
+
+        return {
+            "status": "REVIEW",
+            "score": 55,
+            "detected": detected["level"],
+            "evidence": detected["evidence"],
+            "reason": (
+                f"The question appears to operate at "
+                f"{detected['level']} while "
+                f"{intended_bloom} was entered."
+            )
+        }
+
+    return {
+        "status": "FAIL",
+        "score": 0,
+        "detected": detected["level"],
+        "evidence": detected["evidence"],
+        "reason": (
+            f"The question operates at "
+            f"{detected['level']} rather than the "
+            f"entered Bloom level {intended_bloom}."
+        )
+    }
+
+
+# ============================================================
+# CLO ALIGNMENT
+# ============================================================
+
+def outcome_action(text):
+    lower = text.lower()
+
+    matches = []
+
+    for level, verbs in BLOOM_VERBS.items():
+
+        for verb in verbs:
+
+            if re.search(
+                r"\b"
+                + re.escape(verb)
+                + r"\b",
+                lower
+            ):
+
+                matches.append(
+                    {
+                        "level": level,
+                        "verb": verb
+                    }
                 )
 
     if not matches:
-        return None, None
 
-    priority = {
-        "Remember": 1,
-        "Understand": 2,
-        "Apply": 3,
-        "Analyze": 4,
-        "Evaluate": 5,
-        "Create": 6
-    }
-
-    matches.sort(
-        key=lambda x: priority[x[0]],
-        reverse=True
-    )
-
-    return matches[0][0], matches[0][1]
-
-
-def bloom_score(detected, selected):
-    if not detected or not selected:
-        return 50
-
-    if detected == selected:
-        return 100
-
-    order = {
-        "Remember": 1,
-        "Understand": 2,
-        "Apply": 3,
-        "Analyze": 4,
-        "Evaluate": 5,
-        "Create": 6
-    }
-
-    distance = abs(
-        order[detected] -
-        order[selected]
-    )
-
-    if distance == 1:
-        return 70
-
-    if distance == 2:
-        return 45
-
-    return 25
-
-
-# ============================================================
-# QUESTION QUALITY
-# ============================================================
-
-def quality_score(question):
-    score = 100
-    text = clean_text(question)
-
-    if len(text) < 20:
-        score -= 25
-
-    if len(text) > 500:
-        score -= 10
-
-    words = text.split()
-
-    if len(words) > 100:
-        score -= 10
-
-    if text.count("?") > 2:
-        score -= 10
-
-    repeated = Counter(
-        normalize(text).split()
-    )
-
-    if repeated:
-        most_common = repeated.most_common(1)[0]
-
-        if most_common[1] > 5:
-            score -= 10
-
-    return max(0, min(100, score))
-
-
-# ============================================================
-# QUESTION EVALUATION
-# ============================================================
-
-def evaluate_question(
-    question,
-    selected_domain,
-    course_content,
-    clos,
-    plos,
-    selected_bloom
-):
-    subject_ok, subject_score, subject_reason = check_subject(
-        question,
-        selected_domain,
-        course_content
-    )
-
-    detected_bloom, bloom_verb = detect_bloom(
-        question
-    )
-
-    quality = quality_score(
-        question
-    )
-
-    # --------------------------------------------------------
-    # HARD SUBJECT GATE
-    # --------------------------------------------------------
-
-    if not subject_ok:
         return {
-            "Status": "Rejected",
-            "Alignment Attained": False,
-            "Subject Relevance": subject_score,
-            "CLO Alignment": 0,
-            "PLO Alignment": 0,
-            "Bloom Alignment": 0,
-            "Quality": quality,
-            "Detected Bloom": detected_bloom or "Not detected",
-            "Bloom Verb": bloom_verb or "",
-            "Matched CLO": "None",
-            "Matched PLO": "None",
-            "Reason": "Subject relevance failed. CLO/PLO/Bloom scores are not used for approval.",
-            "Subject Reason": subject_reason
+            "level": "Unknown",
+            "verbs": []
         }
 
-    # --------------------------------------------------------
-    # CLO
-    # --------------------------------------------------------
-
-    matched_clo, clo_score = best_outcome(
-        question,
-        clos
+    highest_rank = max(
+        BLOOM_RANK[
+            x["level"]
+        ]
+        for x in matches
     )
 
-    # --------------------------------------------------------
-    # PLO
-    # --------------------------------------------------------
+    strongest = [
+        x
+        for x in matches
+        if BLOOM_RANK[
+            x["level"]
+        ] == highest_rank
+    ]
 
-    matched_plo, plo_score = best_outcome(
-        question,
-        plos
+    return {
+        "level": strongest[0]["level"],
+        "verbs": [
+            x["verb"]
+            for x in strongest
+        ]
+    }
+
+
+def calculate_clo_alignment(
+    question,
+    clos
+):
+    if not clos:
+
+        return {
+            "status": "REVIEW",
+            "score": 0,
+            "matched": None,
+            "reason": "No CLO was provided.",
+            "content_score": 0,
+            "action_score": 0,
+            "shared_content": []
+        }
+
+    question_tokens = stem_set(
+        question
     )
 
-    # --------------------------------------------------------
-    # BLOOM
-    # --------------------------------------------------------
-
-    bloom_alignment = bloom_score(
-        detected_bloom,
-        selected_bloom
+    question_action = outcome_action(
+        question
     )
 
-    # --------------------------------------------------------
-    # DECISION
-    # --------------------------------------------------------
+    best = None
 
-    status = "Approved"
-    attained = True
+    for clo in clos:
 
-    reasons = []
-
-    if clo_score < 60:
-        status = "Rejected"
-        attained = False
-        reasons.append(
-            "CLO alignment is below the required threshold."
+        clo_tokens = stem_set(
+            clo["text"]
         )
 
-    if selected_bloom and bloom_alignment < 80:
-        status = "Rejected"
-        attained = False
-        reasons.append(
-            f"The question's Bloom level does not sufficiently match the selected {selected_bloom} level."
+        clo_action = outcome_action(
+            clo["text"]
         )
 
-    if plo_score < 45:
-        if status == "Approved":
-            status = "Needs Review"
-
-        reasons.append(
-            "PLO alignment is weak."
+        shared = (
+            question_tokens
+            & clo_tokens
         )
 
-    if quality < 60:
-        if status == "Approved":
-            status = "Needs Review"
+        if question_tokens and clo_tokens:
 
-        reasons.append(
-            "Question wording needs improvement."
+            precision = (
+                len(shared)
+                / len(question_tokens)
+            )
+
+            recall = (
+                len(shared)
+                / len(clo_tokens)
+            )
+
+            if precision + recall:
+
+                content_f1 = (
+                    2
+                    * precision
+                    * recall
+                    / (
+                        precision
+                        + recall
+                    )
+                )
+
+            else:
+                content_f1 = 0
+
+        else:
+            content_f1 = 0
+
+        content_score = (
+            content_f1 * 100
         )
 
-    if not reasons:
-        reasons.append(
-            "Subject, CLO, PLO and Bloom requirements are sufficiently aligned."
+        if (
+            question_action["level"]
+            != "Unknown"
+            and clo_action["level"]
+            != "Unknown"
+        ):
+
+            difference = abs(
+                BLOOM_RANK[
+                    question_action["level"]
+                ]
+                - BLOOM_RANK[
+                    clo_action["level"]
+                ]
+            )
+
+            if difference == 0:
+                action_score = 100
+            elif difference == 1:
+                action_score = 60
+            else:
+                action_score = 20
+
+        else:
+            action_score = 50
+
+        # Content is more important than action.
+        combined = (
+            content_score * 0.70
+            + action_score * 0.30
+        )
+
+        candidate = {
+            "clo": clo,
+            "score": combined,
+            "content_score": content_score,
+            "action_score": action_score,
+            "shared_content": sorted(
+                shared
+            ),
+            "question_action": (
+                question_action["level"]
+            ),
+            "clo_action": (
+                clo_action["level"]
+            )
+        }
+
+        if (
+            best is None
+            or candidate["score"]
+            > best["score"]
+        ):
+            best = candidate
+
+    if best["score"] >= 70:
+
+        status = "PASS"
+
+        reason = (
+            f"The question sufficiently assesses "
+            f"the content and action represented by "
+            f"{best['clo']['id']}."
+        )
+
+    elif best["score"] >= 50:
+
+        status = "REVIEW"
+
+        reason = (
+            f"The question shows partial alignment "
+            f"with {best['clo']['id']}."
+        )
+
+    else:
+
+        status = "FAIL"
+
+        reason = (
+            f"The question does not sufficiently "
+            f"assess {best['clo']['id']}."
         )
 
     return {
-        "Status": status,
-        "Alignment Attained": attained,
-        "Subject Relevance": round(subject_score, 1),
-        "CLO Alignment": round(clo_score, 1),
-        "PLO Alignment": round(plo_score, 1),
-        "Bloom Alignment": round(bloom_alignment, 1),
-        "Quality": round(quality, 1),
-        "Detected Bloom": detected_bloom or "Not detected",
-        "Bloom Verb": bloom_verb or "",
-        "Matched CLO": (
-            matched_clo["code"]
-            if matched_clo
-            else "None"
+        "status": status,
+        "score": round(
+            best["score"],
+            1
         ),
-        "Matched PLO": (
-            matched_plo["code"]
-            if matched_plo
-            else "None"
+        "matched": best["clo"],
+        "reason": reason,
+        "content_score": round(
+            best["content_score"],
+            1
         ),
-        "Reason": " ".join(reasons),
-        "Subject Reason": subject_reason
+        "action_score": round(
+            best["action_score"],
+            1
+        ),
+        "shared_content": best[
+            "shared_content"
+        ],
+        "question_action": best[
+            "question_action"
+        ],
+        "clo_action": best[
+            "clo_action"
+        ]
+    }
+
+
+# ============================================================
+# PLO ALIGNMENT
+# ============================================================
+
+PLO_CAPABILITIES = {
+    "knowledge": {
+        "knowledge", "concept", "principle",
+        "theory", "fundamental", "understand"
+    },
+
+    "problem_solving": {
+        "solve", "problem", "solution",
+        "calculate", "apply", "determine"
+    },
+
+    "analysis": {
+        "analyze", "analyse", "analysis",
+        "examine", "investigate", "interpret",
+        "data", "evidence"
+    },
+
+    "communication": {
+        "communicate", "communication",
+        "write", "writing", "present",
+        "presentation", "explain", "report"
+    },
+
+    "teamwork": {
+        "team", "group", "collaborate",
+        "collaboration", "cooperate",
+        "teamwork"
+    },
+
+    "ethics": {
+        "ethical", "ethics", "professional",
+        "responsibility", "responsible",
+        "integrity", "society"
+    },
+
+    "design": {
+        "design", "develop", "create",
+        "formulate", "prototype", "plan"
+    },
+
+    "technology": {
+        "technology", "software", "tool",
+        "computer", "digital", "technical"
+    },
+
+    "lifelong_learning": {
+        "learning", "learn", "research",
+        "independent", "development",
+        "lifelong"
+    }
+}
+
+
+def infer_plo_capabilities(text):
+    tokens = stem_set(text)
+
+    found = []
+
+    for capability, terms in PLO_CAPABILITIES.items():
+
+        normalized_terms = {
+            simple_stem(term)
+            for term in terms
+        }
+
+        hits = (
+            tokens
+            & normalized_terms
+        )
+
+        if hits:
+
+            found.append(
+                {
+                    "capability": capability,
+                    "hits": sorted(hits)
+                }
+            )
+
+    return found
+
+
+def question_capabilities(question):
+    lower = question.lower()
+
+    capabilities = set()
+
+    if re.search(
+        r"\b"
+        r"(calculate|compute|solve|determine|apply|derive)"
+        r"\b",
+        lower
+    ):
+        capabilities.add(
+            "problem_solving"
+        )
+
+    if re.search(
+        r"\b"
+        r"(analyze|analyse|examine|interpret|"
+        r"investigate|compare|contrast)"
+        r"\b",
+        lower
+    ):
+        capabilities.add(
+            "analysis"
+        )
+
+    if re.search(
+        r"\b"
+        r"(explain|describe|summarize|discuss)"
+        r"\b",
+        lower
+    ):
+        capabilities.add(
+            "communication"
+        )
+
+    if re.search(
+        r"\b"
+        r"(design|develop|create|formulate|"
+        r"construct|propose)"
+        r"\b",
+        lower
+    ):
+        capabilities.add(
+            "design"
+        )
+
+    if re.search(
+        r"\b"
+        r"(justify|evaluate|critique|assess|defend)"
+        r"\b",
+        lower
+    ):
+        capabilities.add(
+            "analysis"
+        )
+
+    if re.search(
+        r"\b"
+        r"(ethical|professional|responsible|ethics)"
+        r"\b",
+        lower
+    ):
+        capabilities.add(
+            "ethics"
+        )
+
+    if not capabilities:
+        capabilities.add(
+            "knowledge"
+        )
+
+    return capabilities
+
+
+def calculate_plo_alignment(
+    question,
+    plos
+):
+    if not plos:
+
+        return {
+            "status": "NOT ASSESSED",
+            "score": 100,
+            "matched": None,
+            "reason": "No PLO was provided.",
+            "shared": []
+        }
+
+    q_capabilities = question_capabilities(
+        question
+    )
+
+    best = None
+
+    for plo in plos:
+
+        plo_capabilities = {
+            item["capability"]
+            for item in infer_plo_capabilities(
+                plo["text"]
+            )
+        }
+
+        shared = (
+            q_capabilities
+            & plo_capabilities
+        )
+
+        text_score = overlap_score(
+            question,
+            plo["text"]
+        )
+
+        capability_score = (
+            100
+            if shared
+            else 0
+        )
+
+        combined = (
+            capability_score * 0.70
+            + text_score * 0.30
+        )
+
+        candidate = {
+            "plo": plo,
+            "score": combined,
+            "shared": sorted(
+                shared
+            )
+        }
+
+        if (
+            best is None
+            or candidate["score"]
+            > best["score"]
+        ):
+            best = candidate
+
+    if best["score"] >= 65:
+
+        status = "PASS"
+
+        reason = (
+            f"The question demonstrates capability "
+            f"associated with {best['plo']['id']}."
+        )
+
+    elif best["score"] >= 40:
+
+        status = "REVIEW"
+
+        reason = (
+            f"Some evidence of alignment with "
+            f"{best['plo']['id']} was found, but "
+            f"the capability evidence is limited."
+        )
+
+    else:
+
+        status = "FAIL"
+
+        reason = (
+            f"The question does not sufficiently "
+            f"demonstrate the capability represented "
+            f"by {best['plo']['id']}."
+        )
+
+    return {
+        "status": status,
+        "score": round(
+            best["score"],
+            1
+        ),
+        "matched": best["plo"],
+        "reason": reason,
+        "shared": best["shared"]
+    }
+
+
+# ============================================================
+# QUESTION EFFECTIVENESS
+# ============================================================
+
+def question_quality(
+    question,
+    options
+):
+    text = remove_question_prefix(
+        question
+    )
+
+    lower = text.lower()
+
+    clarity = 100
+    specificity = 100
+    measurability = 100
+
+    word_count = len(
+        text.split()
+    )
+
+    if word_count < 6:
+        clarity -= 30
+
+    if word_count > 120:
+        clarity -= 15
+
+    vague_phrases = [
+        "discuss everything",
+        "write something",
+        "say something",
+        "tell me about",
+        "what do you know about",
+        "explain everything",
+        "various things"
+    ]
+
+    for phrase in vague_phrases:
+
+        if phrase in lower:
+            specificity -= 30
+
+    if re.search(
+        r"\b"
+        r"(something|anything|everything|various things)"
+        r"\b",
+        lower
+    ):
+        specificity -= 15
+
+    if not has_question_structure(
+        text
+    ):
+        measurability -= 20
+
+    if options:
+
+        if len(options) < 3:
+            specificity -= 15
+
+        option_texts = []
+
+        for option in options:
+
+            cleaned = re.sub(
+                r"^\s*[A-Ha-h][\)\].:\-]\s*",
+                "",
+                option
+            )
+
+            option_texts.append(
+                normalize_inline(
+                    cleaned
+                )
+            )
+
+        if len(
+            set(option_texts)
+        ) != len(option_texts):
+
+            specificity -= 25
+
+    clarity = max(
+        0,
+        clarity
+    )
+
+    specificity = max(
+        0,
+        specificity
+    )
+
+    measurability = max(
+        0,
+        measurability
+    )
+
+    score = (
+        clarity * 0.35
+        + specificity * 0.35
+        + measurability * 0.30
+    )
+
+    if score >= 75:
+        status = "PASS"
+    elif score >= 55:
+        status = "REVIEW"
+    else:
+        status = "FAIL"
+
+    return {
+        "status": status,
+        "score": round(
+            score,
+            1
+        ),
+        "clarity": clarity,
+        "specificity": specificity,
+        "measurability": measurability
     }
 
 
@@ -1438,172 +2652,386 @@ def evaluate_question(
 # DIRECT REVISION
 # ============================================================
 
-def remove_bloom_verbs(text):
-    words = clean_text(text).split()
-
-    all_verbs = set()
-
-    for verbs in BLOOM_VERBS.values():
-        all_verbs.update(verbs)
-
-    result = []
-
-    for word in words:
-        normalized = normalize(word)
-
-        if normalized in all_verbs:
-            continue
-
-        result.append(word)
-
-    return " ".join(result)
-
-
-def clo_topic(clo_text):
-    text = clean_text(clo_text)
-
-    # Remove common CLO action verbs
-    text = remove_bloom_verbs(text)
-
-    # Remove common OBE wording
-    text = re.sub(
-        r"\b(students?|learners?)\b",
-        "",
-        text,
-        flags=re.IGNORECASE
-    )
-
-    text = re.sub(
-        r"\bwill be able to\b",
-        "",
-        text,
-        flags=re.IGNORECASE
-    )
-
-    text = re.sub(
-        r"\bunderstand\b",
-        "",
-        text,
-        flags=re.IGNORECASE
-    )
-
-    text = re.sub(
-        r"\s+",
-        " ",
-        text
-    ).strip(" .,:;-")
-
-    return text
-
-
-def extract_core_topic(clo_text):
-    topic = clo_topic(clo_text)
-
-    if not topic:
-        return "the main concepts covered in this course"
-
-    return topic
-
-
-def make_revision(
-    original_question,
+def revision_for_question(
+    question,
     clo,
-    selected_bloom,
-    course_content
+    intended_bloom
 ):
-    if not clo:
-        return original_question
-
-    topic = extract_core_topic(
-        clo["text"]
+    original = remove_question_prefix(
+        question
     )
 
-    original = clean_text(
-        original_question
+    if clo:
+        clo_text = clo["text"]
+    else:
+        clo_text = ""
+
+    # Preserve important content from the original
+    # rather than inserting CLO wording.
+    original_tokens = [
+        word
+        for word in re.findall(
+            r"\b[A-Za-z][A-Za-z0-9-]+\b",
+            original
+        )
+        if word.lower()
+        not in STOP_WORDS
+    ]
+
+    content = " ".join(
+        original_tokens[:12]
+    )
+
+    if not content:
+        content = clo_text
+
+    if intended_bloom == "Remember":
+        return (
+            f"Identify {content}."
+        )
+
+    if intended_bloom == "Understand":
+        return (
+            f"Explain how {content} works and "
+            f"why it produces the stated result."
+        )
+
+    if intended_bloom == "Apply":
+        return (
+            f"Calculate or determine the required "
+            f"result using {content}."
+        )
+
+    if intended_bloom == "Analyze":
+        return (
+            f"Analyze {content} and identify the "
+            f"factors responsible for the result."
+        )
+
+    if intended_bloom == "Evaluate":
+        return (
+            f"Evaluate {content} and justify your "
+            f"conclusion using relevant evidence."
+        )
+
+    if intended_bloom == "Create":
+        return (
+            f"Design a suitable solution involving "
+            f"{content} and explain how it works."
+        )
+
+    return original
+
+
+# ============================================================
+# FINAL EVALUATION
+# ============================================================
+
+def evaluate_question(
+    item,
+    expected_domain,
+    clos,
+    plos,
+    intended_bloom
+):
+    question = item["text"]
+
+    subject = question_subject_check(
+        question,
+        expected_domain
+    )
+
+    quality = question_quality(
+        question,
+        item["options"]
     )
 
     # --------------------------------------------------------
-    # Use direct, specific wording.
-    # Do NOT mention CLO/PLO.
+    # HARD SUBJECT GATE
     # --------------------------------------------------------
 
-    if selected_bloom == "Remember":
-        return (
-            f"Define {topic} and state its key characteristics."
+    if subject["status"] == "FAIL":
+
+        return {
+            "question": question,
+            "number": item["number"],
+            "options": item["options"],
+            "subject": subject,
+            "clo": None,
+            "plo": None,
+            "bloom": None,
+            "quality": quality,
+            "decision": "REJECTED",
+            "overall": 0,
+            "reason": (
+                "Subject relevance failed. Other scores "
+                "cannot compensate for a subject mismatch."
+            )
+        }
+
+    clo = calculate_clo_alignment(
+        question,
+        clos
+    )
+
+    plo = calculate_plo_alignment(
+        question,
+        plos
+    )
+
+    bloom = bloom_alignment(
+        question,
+        intended_bloom
+    )
+
+    # --------------------------------------------------------
+    # NON-COMPENSATORY DECISION
+    # --------------------------------------------------------
+
+    if subject["status"] == "REVIEW":
+
+        decision = "NEEDS REVIEW"
+
+        reason = (
+            "Subject evidence is insufficient for "
+            "automatic approval."
         )
 
-    if selected_bloom == "Understand":
-        return (
-            f"Explain {topic} and describe how its main components are related."
+    elif clo["status"] == "FAIL":
+
+        decision = "REJECTED"
+
+        reason = (
+            "The question does not sufficiently assess "
+            "the selected CLO."
         )
 
-    if selected_bloom == "Apply":
-        return (
-            f"Apply the principles of {topic} to solve a relevant problem."
+    elif bloom["status"] == "FAIL":
+
+        decision = "REJECTED"
+
+        reason = (
+            f"Bloom mismatch: entered "
+            f"{intended_bloom}, detected "
+            f"{bloom['detected']}."
         )
 
-    if selected_bloom == "Analyze":
-        return (
-            f"Analyze {topic} by identifying its main components and explaining their relationships."
+    elif plo["status"] == "FAIL":
+
+        decision = "REJECTED"
+
+        reason = (
+            "The question does not demonstrate the "
+            "capability represented by the selected PLO."
         )
 
-    if selected_bloom == "Evaluate":
-        return (
-            f"Evaluate {topic} using appropriate criteria and justify your conclusion."
+    elif clo["status"] == "REVIEW":
+
+        decision = "NEEDS REVIEW"
+
+        reason = (
+            "CLO alignment is only partial."
         )
 
-    if selected_bloom == "Create":
-        return (
-            f"Design a solution based on the principles of {topic} and explain your design choices."
+    elif bloom["status"] == "REVIEW":
+
+        decision = "NEEDS REVIEW"
+
+        reason = (
+            "Bloom alignment is uncertain."
         )
 
-    # Fallback
-    return (
-        f"Explain {topic} using an appropriate example."
+    elif plo["status"] == "REVIEW":
+
+        decision = "NEEDS REVIEW"
+
+        reason = (
+            "PLO alignment is not sufficiently supported."
+        )
+
+    elif quality["status"] == "FAIL":
+
+        decision = "NEEDS REVIEW"
+
+        reason = (
+            "The question has significant effectiveness "
+            "problems."
+        )
+
+    else:
+
+        decision = "APPROVED"
+
+        reason = (
+            "The question passed the subject, CLO, "
+            "PLO and Bloom alignment gates."
+        )
+
+    overall = (
+        subject["score"] * 0.30
+        + clo["score"] * 0.25
+        + plo["score"] * 0.15
+        + bloom["score"] * 0.15
+        + quality["score"] * 0.15
+    )
+
+    return {
+        "question": question,
+        "number": item["number"],
+        "options": item["options"],
+        "subject": subject,
+        "clo": clo,
+        "plo": plo,
+        "bloom": bloom,
+        "quality": quality,
+        "decision": decision,
+        "overall": round(
+            overall,
+            1
+        ),
+        "reason": reason
+    }
+
+
+# ============================================================
+# CSV EXPORT
+# ============================================================
+
+def results_dataframe(results):
+    rows = []
+
+    for result in results:
+
+        clo_id = ""
+
+        if (
+            result["clo"]
+            and result["clo"].get(
+                "matched"
+            )
+        ):
+            clo_id = result[
+                "clo"
+            ]["matched"]["id"]
+
+        plo_id = ""
+
+        if (
+            result["plo"]
+            and result["plo"].get(
+                "matched"
+            )
+        ):
+            plo_id = result[
+                "plo"
+            ]["matched"]["id"]
+
+        detected_bloom = ""
+
+        if result["bloom"]:
+
+            detected_bloom = result[
+                "bloom"
+            ].get(
+                "detected",
+                ""
+            )
+
+        rows.append(
+            {
+                "Question No": result[
+                    "number"
+                ],
+                "Question": result[
+                    "question"
+                ],
+                "Decision": result[
+                    "decision"
+                ],
+                "Overall Score": result[
+                    "overall"
+                ],
+                "Subject Status": result[
+                    "subject"
+                ]["status"],
+                "Subject Score": result[
+                    "subject"
+                ]["score"],
+                "Detected Subject": result[
+                    "subject"
+                ]["detected_domain"],
+                "CLO": clo_id,
+                "CLO Score": (
+                    result["clo"]["score"]
+                    if result["clo"]
+                    else 0
+                ),
+                "PLO": plo_id,
+                "PLO Score": (
+                    result["plo"]["score"]
+                    if result["plo"]
+                    else 0
+                ),
+                "Entered Bloom": result.get(
+                    "entered_bloom",
+                    ""
+                ),
+                "Detected Bloom": detected_bloom,
+                "Bloom Score": (
+                    result["bloom"]["score"]
+                    if result["bloom"]
+                    else 0
+                ),
+                "Quality Score": result[
+                    "quality"
+                ]["score"],
+                "Reason": result[
+                    "reason"
+                ]
+            }
+        )
+
+    return pd.DataFrame(
+        rows
     )
 
 
 # ============================================================
-# SESSION STATE
+# UI
 # ============================================================
 
-if "results" not in st.session_state:
-    st.session_state.results = None
-
-if "revised_results" not in st.session_state:
-    st.session_state.revised_results = None
-
-
-# ============================================================
-# TITLE
-# ============================================================
-
-st.title("🎓 OBE Assessment Alignment Checker")
+st.title(
+    "🎓 OBE Assessment Alignment Checker"
+)
 
 st.write(
-    "Evaluate assessment questions for subject relevance, "
-    "CLO alignment, PLO alignment and Bloom's Taxonomy."
+    "Evaluate assessment questions against the selected "
+    "course, CLO, PLO and Bloom's Taxonomy level."
+)
+
+st.info(
+    "The system first removes document metadata and validates "
+    "genuine questions. Scanned PDFs are automatically sent "
+    "through OCR when normal PDF text extraction is insufficient."
 )
 
 
 # ============================================================
-# COURSE INFORMATION
+# CONTEXT
 # ============================================================
 
-st.subheader("1. Course Information")
+st.subheader(
+    "1. Assessment Context"
+)
 
 course_name = st.text_input(
     "Course / Subject Name",
-    placeholder="e.g., General Chemistry"
+    placeholder="Example: General Chemistry"
 )
 
-course_content = st.text_area(
-    "Course Content / Syllabus",
-    height=150,
-    placeholder=(
-        "Paste important course topics, syllabus content, "
-        "or learning material here. This improves subject detection."
-    )
+intended_bloom = st.selectbox(
+    "Intended Bloom's Taxonomy Level",
+    BLOOM_LEVELS
 )
 
 
@@ -1611,65 +3039,90 @@ course_content = st.text_area(
 # CLO / PLO
 # ============================================================
 
-st.subheader("2. Learning Outcomes")
-
 col1, col2 = st.columns(2)
 
 with col1:
+
     clo_text = st.text_area(
-        "Course Learning Outcomes (CLOs)",
+        "Enter CLOs",
         height=220,
         placeholder=(
-            "CLO1: Explain the structure and properties of atoms.\n"
-            "CLO2: Apply chemical principles to solve numerical problems."
+            "CLO1: Explain the principles of chemical equilibrium.\n"
+            "CLO2: Apply stoichiometric principles to solve problems."
         )
     )
 
 with col2:
+
     plo_text = st.text_area(
-        "Program Learning Outcomes (PLOs)",
+        "Enter PLOs",
         height=220,
         placeholder=(
             "PLO1: Apply knowledge of mathematics and science.\n"
-            "PLO2: Analyze problems using appropriate methods."
+            "PLO2: Analyze and solve technical problems."
         )
     )
 
 
-# ============================================================
-# BLOOM
-# ============================================================
-
-st.subheader("3. Assessment Level")
-
-selected_bloom = st.selectbox(
-    "Intended Bloom's Taxonomy Level",
-    BLOOM_LEVELS,
-    index=1
+clos = parse_outcomes(
+    clo_text,
+    "CLO"
 )
 
+plos = parse_outcomes(
+    plo_text,
+    "PLO"
+)
+
+if clos:
+
+    st.success(
+        f"{len(clos)} CLO(s) detected."
+    )
+
+else:
+
+    st.warning(
+        "No CLO detected. Use CLO1: description."
+    )
+
+
+if plos:
+
+    st.success(
+        f"{len(plos)} PLO(s) detected."
+    )
+
+else:
+
+    st.warning(
+        "No PLO detected. Use PLO1: description."
+    )
+
 
 # ============================================================
-# FILE UPLOAD
+# FILE
 # ============================================================
 
-st.subheader("4. Upload Assessment")
+st.subheader(
+    "2. Assessment File"
+)
 
 uploaded_file = st.file_uploader(
-    "Upload the assessment file",
+    "Upload complete assessment",
     type=[
         "pdf",
         "docx",
-        "xlsx",
-        "xls",
+        "txt",
         "csv",
-        "txt"
-    ],
-    help=(
-        "The assessment may contain MCQs, short questions, "
-        "long questions, numerical questions, analytical questions, "
-        "or mixed question types."
-    )
+        "xlsx",
+        "xls"
+    ]
+)
+
+manual_text = st.text_area(
+    "Or paste assessment text",
+    height=220
 )
 
 
@@ -1684,572 +3137,1080 @@ if st.button(
 ):
 
     if not course_name.strip():
+
         st.error(
-            "Please enter the course / subject name."
+            "Please enter the course / subject."
         )
+
         st.stop()
 
-    if not clo_text.strip():
+    if not clos:
+
         st.error(
             "Please enter at least one CLO."
         )
+
         st.stop()
 
-    if not plo_text.strip():
-        st.warning(
-            "No PLOs were entered. PLO alignment will be limited."
+    if uploaded_file:
+
+        with st.spinner(
+            "Reading assessment..."
+        ):
+
+            assessment_text, extraction_method = (
+                read_uploaded_file(
+                    uploaded_file
+                )
+            )
+
+        if not assessment_text.strip():
+
+            st.error(
+                "The uploaded file could not be read."
+            )
+
+            st.warning(
+                "If this is a scanned PDF, verify that "
+                "Tesseract OCR is installed through packages.txt."
+            )
+
+            st.stop()
+
+        st.success(
+            f"File read successfully using "
+            f"**{extraction_method}**."
         )
 
-    if uploaded_file is None:
+    elif manual_text.strip():
+
+        assessment_text = manual_text
+        extraction_method = "Pasted text"
+
+    else:
+
         st.error(
-            "Please upload an assessment file."
+            "Upload a file or paste the assessment."
         )
+
         st.stop()
 
-    # Read file
-    with st.spinner("Reading assessment..."):
-        extracted_text, file_message = read_file(
-            uploaded_file
-        )
 
-    if not extracted_text.strip():
-        st.error(
-            f"{file_message}\n\n"
-            "No readable assessment text was found."
-        )
-        st.stop()
+    # --------------------------------------------------------
+    # Detect course
+    # --------------------------------------------------------
 
-    # Parse outcomes
-    clos = parse_outcomes(
-        clo_text,
-        "CLO"
+    detected_domain, confidence = (
+        determine_course_domain(
+            course_name,
+            clo_text,
+            plo_text,
+            assessment_text
+        )
     )
 
-    plos = parse_outcomes(
-        plo_text,
-        "PLO"
-    )
 
-    if not clos:
-        st.error(
-            "No CLOs were detected. Please use formats such as CLO1, CLO2, etc."
-        )
-        st.stop()
+    # --------------------------------------------------------
+    # Extract genuine questions
+    # --------------------------------------------------------
 
-    # Extract questions
     questions = extract_questions(
-        extracted_text
+        assessment_text
     )
 
     if not questions:
+
         st.error(
-            "No assessment questions could be detected."
+            "No genuine assessment questions were detected."
         )
 
-        with st.expander(
-            "Show extracted text for troubleshooting"
-        ):
-            st.text(extracted_text[:12000])
+        st.info(
+            "The file was read, but no question-like "
+            "assessment content was found."
+        )
 
         st.stop()
 
-    # Detect subject
-    detected_domain, confidence = detect_domain(
-        course_name,
-        course_content,
-        questions
-    )
 
-    # User course name should take priority
-    requested_domain = None
-
-    normalized_course = normalize(
-        course_name
-    )
-
-    for alias, domain in DOMAIN_ALIASES.items():
-        if alias in normalized_course:
-            requested_domain = domain
-            break
-
-    if requested_domain:
-        detected_domain = requested_domain
-        confidence = 0.95
-
+    # --------------------------------------------------------
     # Evaluate
+    # --------------------------------------------------------
+
     results = []
 
-    for question in questions:
+    for item in questions:
 
-        evaluation = evaluate_question(
-            question=question["text"],
-            selected_domain=detected_domain,
-            course_content=course_content,
-            clos=clos,
-            plos=plos,
-            selected_bloom=selected_bloom
+        result = evaluate_question(
+            item,
+            detected_domain,
+            clos,
+            plos,
+            intended_bloom
         )
 
-        row = {
-            "Question": question["text"],
-            **evaluation
-        }
+        result[
+            "entered_bloom"
+        ] = intended_bloom
 
-        results.append(row)
+        results.append(
+            result
+        )
 
-    st.session_state.results = {
-        "results": results,
-        "questions": questions,
-        "clos": clos,
-        "plos": plos,
-        "detected_domain": detected_domain,
-        "confidence": confidence,
-        "file_message": file_message,
-        "extracted_text": extracted_text,
-        "selected_bloom": selected_bloom,
-        "course_name": course_name,
-        "course_content": course_content
-    }
 
-    st.session_state.revised_results = None
+    st.session_state[
+        "results"
+    ] = results
+
+    st.session_state[
+        "assessment_text"
+    ] = assessment_text
+
+    st.session_state[
+        "detected_domain"
+    ] = detected_domain
+
+    st.session_state[
+        "confidence"
+    ] = confidence
+
+    st.session_state[
+        "extraction_method"
+    ] = extraction_method
 
 
 # ============================================================
 # RESULTS
 # ============================================================
 
-if st.session_state.results:
+if "results" in st.session_state:
 
-    data = st.session_state.results
+    results = st.session_state[
+        "results"
+    ]
 
-    results = data["results"]
-    questions = data["questions"]
+    detected_domain = st.session_state[
+        "detected_domain"
+    ]
+
+    confidence = st.session_state[
+        "confidence"
+    ]
+
+    extraction_method = st.session_state[
+        "extraction_method"
+    ]
+
 
     st.divider()
 
-    st.header("📊 Results")
-
-    # --------------------------------------------------------
-    # Summary
-    # --------------------------------------------------------
-
-    approved = sum(
-        1
-        for r in results
-        if r["Status"] == "Approved"
+    st.subheader(
+        "3. Assessment Detection"
     )
 
-    review = sum(
-        1
-        for r in results
-        if r["Status"] == "Needs Review"
-    )
+    c1, c2, c3, c4 = st.columns(4)
 
-    rejected = sum(
-        1
-        for r in results
-        if r["Status"] == "Rejected"
-    )
+    with c1:
 
-    total = len(results)
-
-    m1, m2, m3, m4 = st.columns(4)
-
-    with m1:
         st.metric(
-            "Questions",
-            total
+            "Detected Subject",
+            detected_domain
         )
 
-    with m2:
+    with c2:
+
         st.metric(
-            "Approved",
-            approved
+            "Context Confidence",
+            f"{confidence}%"
         )
 
-    with m3:
+    with c3:
+
         st.metric(
-            "Needs Review",
-            review
+            "Questions Extracted",
+            len(results)
         )
 
-    with m4:
+    with c4:
+
         st.metric(
-            "Rejected",
-            rejected
+            "Read Method",
+            extraction_method
         )
 
-    # --------------------------------------------------------
-    # Subject information
-    # --------------------------------------------------------
 
-    st.info(
-        f"Detected Subject: **{data['detected_domain']}**  \n"
-        f"Detection Confidence: **{data['confidence'] * 100:.1f}%**"
+    # ========================================================
+    # EXTRACTED QUESTIONS
+    # ========================================================
+
+    st.subheader(
+        "4. Validated Questions"
     )
 
-    # --------------------------------------------------------
-    # Main results table
-    # --------------------------------------------------------
-
-    display_rows = []
-
-    for index, row in enumerate(results, start=1):
-
-        display_rows.append({
-            "Q#": index,
-            "Question": row["Question"],
-            "Status": row["Status"],
-            "Subject": row["Subject Relevance"],
-            "CLO": row["CLO Alignment"],
-            "PLO": row["PLO Alignment"],
-            "Bloom": row["Bloom Alignment"],
-            "Detected Bloom": row["Detected Bloom"],
-            "Matched CLO": row["Matched CLO"],
-            "Matched PLO": row["Matched PLO"]
-        })
-
-    result_df = pd.DataFrame(
-        display_rows
+    st.caption(
+        "Only validated assessment questions are shown here. "
+        "Page numbers, timestamps, headings, QuestionWell "
+        "metadata and document headers are excluded."
     )
+
+    extraction_rows = []
+
+    for result in results:
+
+        extraction_rows.append(
+            {
+                "No.": result[
+                    "number"
+                ],
+                "Question": result[
+                    "question"
+                ]
+            }
+        )
 
     st.dataframe(
-        result_df,
+        pd.DataFrame(
+            extraction_rows
+        ),
         use_container_width=True,
         hide_index=True
     )
 
 
     # ========================================================
-    # DETAILED EVALUATION
+    # SUMMARY
     # ========================================================
 
-    st.subheader("Detailed Evaluation")
-
-    for index, row in enumerate(results, start=1):
-
-        status = row["Status"]
-
-        if status == "Approved":
-            icon = "✅"
-        elif status == "Needs Review":
-            icon = "⚠️"
-        else:
-            icon = "❌"
-
-        with st.expander(
-            f"{icon} Question {index}: {row['Question'][:100]}"
-        ):
-
-            st.write(
-                f"**Question:** {row['Question']}"
-            )
-
-            c1, c2, c3, c4 = st.columns(4)
-
-            with c1:
-                st.metric(
-                    "Subject",
-                    f"{row['Subject Relevance']:.0f}%"
-                )
-
-            with c2:
-                st.metric(
-                    "CLO",
-                    f"{row['CLO Alignment']:.0f}%"
-                )
-
-            with c3:
-                st.metric(
-                    "PLO",
-                    f"{row['PLO Alignment']:.0f}%"
-                )
-
-            with c4:
-                st.metric(
-                    "Bloom",
-                    f"{row['Bloom Alignment']:.0f}%"
-                )
-
-            st.write(
-                f"**Detected Bloom:** {row['Detected Bloom']}"
-            )
-
-            if row["Bloom Verb"]:
-                st.write(
-                    f"**Bloom Verb:** {row['Bloom Verb']}"
-                )
-
-            st.write(
-                f"**Matched CLO:** {row['Matched CLO']}"
-            )
-
-            st.write(
-                f"**Matched PLO:** {row['Matched PLO']}"
-            )
-
-            st.write(
-                f"**Subject Check:** {row['Subject Reason']}"
-            )
-
-            st.write(
-                f"**Decision:** {row['Reason']}"
-            )
-
-
-    # ========================================================
-    # REVISION
-    # ========================================================
-
-    st.divider()
-
-    st.header("🔧 Revise Failed Questions")
-
-    st.write(
-        "Questions that fail alignment can be revised into direct, "
-        "subject-specific assessment questions."
+    st.subheader(
+        "5. Evaluation Summary"
     )
 
-    failed_indices = [
-        i
-        for i, row in enumerate(results)
-        if row["Status"] != "Approved"
+    approved = sum(
+        r["decision"] == "APPROVED"
+        for r in results
+    )
+
+    rejected = sum(
+        r["decision"] == "REJECTED"
+        for r in results
+    )
+
+    review = sum(
+        r["decision"] == "NEEDS REVIEW"
+        for r in results
+    )
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        st.metric(
+            "Total",
+            len(results)
+        )
+
+    with c2:
+        st.metric(
+            "Approved",
+            approved
+        )
+
+    with c3:
+        st.metric(
+            "Rejected",
+            rejected
+        )
+
+    with c4:
+        st.metric(
+            "Needs Review",
+            review
+        )
+
+
+    # ========================================================
+    # SUMMARY TABLE
+    # ========================================================
+
+    summary_rows = []
+
+    for result in results:
+
+        clo_id = ""
+
+        if (
+            result["clo"]
+            and result["clo"].get(
+                "matched"
+            )
+        ):
+            clo_id = result[
+                "clo"
+            ]["matched"]["id"]
+
+        plo_id = ""
+
+        if (
+            result["plo"]
+            and result["plo"].get(
+                "matched"
+            )
+        ):
+            plo_id = result[
+                "plo"
+            ]["matched"]["id"]
+
+        detected_bloom = ""
+
+        if result["bloom"]:
+
+            detected_bloom = result[
+                "bloom"
+            ].get(
+                "detected",
+                ""
+            )
+
+        summary_rows.append(
+            {
+                "No.": result[
+                    "number"
+                ],
+                "Decision": result[
+                    "decision"
+                ],
+                "Overall": result[
+                    "overall"
+                ],
+                "Subject": result[
+                    "subject"
+                ]["status"],
+                "CLO": clo_id,
+                "CLO": clo_id,
+                "CLO Alignment": (
+                    result["clo"]["score"]
+                    if result["clo"]
+                    else 0
+                ),
+                "PLO": plo_id,
+                "PLO Alignment": (
+                    result["plo"]["score"]
+                    if result["plo"]
+                    else 0
+                ),
+                "Entered Bloom": result[
+                    "entered_bloom"
+                ],
+                "Detected Bloom": detected_bloom,
+                "Bloom Alignment": (
+                    result["bloom"]["score"]
+                    if result["bloom"]
+                    else 0
+                )
+            }
+        )
+
+    st.dataframe(
+        pd.DataFrame(
+            summary_rows
+        ),
+        use_container_width=True,
+        hide_index=True
+    )
+
+
+    # ========================================================
+    # DETAILED ANALYSIS
+    # ========================================================
+
+    st.subheader(
+        "6. Detailed Question Analysis"
+    )
+
+    for index, result in enumerate(
+        results,
+        start=1
+    ):
+
+        number = (
+            result["number"]
+            or str(index)
+        )
+
+        with st.expander(
+            f"Question {number} — "
+            f"{result['decision']}"
+        ):
+
+            st.markdown(
+                "### Question"
+            )
+
+            st.write(
+                result["question"]
+            )
+
+            # ------------------------------------------------
+            # SUBJECT
+            # ------------------------------------------------
+
+            st.markdown(
+                "### Subject Relevance"
+            )
+
+            subject = result[
+                "subject"
+            ]
+
+            if subject["status"] == "PASS":
+
+                st.success(
+                    f"PASS — "
+                    f"{subject['score']}%"
+                )
+
+            elif subject["status"] == "FAIL":
+
+                st.error(
+                    "FAIL — 0%"
+                )
+
+            else:
+
+                st.warning(
+                    f"NEEDS REVIEW — "
+                    f"{subject['score']}%"
+                )
+
+            st.write(
+                "Detected subject: "
+                + subject[
+                    "detected_domain"
+                ]
+            )
+
+            if subject["evidence"]:
+
+                st.write(
+                    "Evidence: "
+                    + ", ".join(
+                        subject[
+                            "evidence"
+                        ]
+                    )
+                )
+
+            st.caption(
+                subject["reason"]
+            )
+
+
+            # ------------------------------------------------
+            # HARD SUBJECT STOP
+            # ------------------------------------------------
+
+            if subject["status"] == "FAIL":
+
+                st.error(
+                    "CLO, PLO and Bloom approval is blocked "
+                    "because the subject gate failed."
+                )
+
+                st.error(
+                    "FINAL: REJECTED"
+                )
+
+                continue
+
+
+            # ------------------------------------------------
+            # CLO
+            # ------------------------------------------------
+
+            st.markdown(
+                "### CLO Alignment"
+            )
+
+            clo_result = result[
+                "clo"
+            ]
+
+            if clo_result["status"] == "PASS":
+
+                st.success(
+                    f"PASS — "
+                    f"{clo_result['score']}%"
+                )
+
+            elif clo_result["status"] == "FAIL":
+
+                st.error(
+                    f"FAIL — "
+                    f"{clo_result['score']}%"
+                )
+
+            else:
+
+                st.warning(
+                    f"NEEDS REVIEW — "
+                    f"{clo_result['score']}%"
+                )
+
+            if clo_result.get(
+                "matched"
+            ):
+
+                st.write(
+                    f"Matched CLO: "
+                    f"**{clo_result['matched']['id']}**"
+                )
+
+                st.write(
+                    clo_result[
+                        "matched"
+                    ]["text"]
+                )
+
+            st.write(
+                "Content alignment: "
+                f"**{clo_result['content_score']}%**"
+            )
+
+            st.write(
+                "Action alignment: "
+                f"**{clo_result['action_score']}%**"
+            )
+
+            if clo_result[
+                "shared_content"
+            ]:
+
+                st.write(
+                    "Shared content evidence: "
+                    + ", ".join(
+                        clo_result[
+                            "shared_content"
+                        ]
+                    )
+                )
+
+            st.caption(
+                clo_result["reason"]
+            )
+
+
+            # ------------------------------------------------
+            # PLO
+            # ------------------------------------------------
+
+            st.markdown(
+                "### PLO Alignment"
+            )
+
+            plo_result = result[
+                "plo"
+            ]
+
+            if plo_result["status"] == "PASS":
+
+                st.success(
+                    f"PASS — "
+                    f"{plo_result['score']}%"
+                )
+
+            elif plo_result["status"] == "FAIL":
+
+                st.error(
+                    f"FAIL — "
+                    f"{plo_result['score']}%"
+                )
+
+            else:
+
+                st.warning(
+                    f"NEEDS REVIEW — "
+                    f"{plo_result['score']}%"
+                )
+
+            if plo_result.get(
+                "matched"
+            ):
+
+                st.write(
+                    f"Matched PLO: "
+                    f"**{plo_result['matched']['id']}**"
+                )
+
+                st.write(
+                    plo_result[
+                        "matched"
+                    ]["text"]
+                )
+
+            if plo_result[
+                "shared"
+            ]:
+
+                st.write(
+                    "Capability evidence: "
+                    + ", ".join(
+                        plo_result[
+                            "shared"
+                        ]
+                    )
+                )
+
+            st.caption(
+                plo_result["reason"]
+            )
+
+
+            # ------------------------------------------------
+            # BLOOM
+            # ------------------------------------------------
+
+            st.markdown(
+                "### Bloom's Taxonomy"
+            )
+
+            bloom_result = result[
+                "bloom"
+            ]
+
+            st.write(
+                "Entered Bloom level: "
+                f"**{result['entered_bloom']}**"
+            )
+
+            st.write(
+                "Detected cognitive level: "
+                f"**{bloom_result['detected']}**"
+            )
+
+            if bloom_result["status"] == "PASS":
+
+                st.success(
+                    f"PASS — "
+                    f"{bloom_result['score']}%"
+                )
+
+            elif bloom_result["status"] == "FAIL":
+
+                st.error(
+                    f"FAIL — "
+                    f"{bloom_result['score']}%"
+                )
+
+            else:
+
+                st.warning(
+                    f"NEEDS REVIEW — "
+                    f"{bloom_result['score']}%"
+                )
+
+            if bloom_result[
+                "evidence"
+            ]:
+
+                evidence = []
+
+                for item in bloom_result[
+                    "evidence"
+                ]:
+
+                    evidence.append(
+                        f"{item['verb']} → "
+                        f"{item['level']}"
+                    )
+
+                st.write(
+                    "Cognitive evidence: "
+                    + "; ".join(
+                        evidence
+                    )
+                )
+
+            st.caption(
+                bloom_result["reason"]
+            )
+
+
+            # ------------------------------------------------
+            # EFFECTIVENESS
+            # ------------------------------------------------
+
+            st.markdown(
+                "### Question Effectiveness"
+            )
+
+            quality = result[
+                "quality"
+            ]
+
+            q1, q2, q3, q4 = st.columns(4)
+
+            with q1:
+                st.metric(
+                    "Overall",
+                    f"{quality['score']}%"
+                )
+
+            with q2:
+                st.metric(
+                    "Clarity",
+                    f"{quality['clarity']}%"
+                )
+
+            with q3:
+                st.metric(
+                    "Specificity",
+                    f"{quality['specificity']}%"
+                )
+
+            with q4:
+                st.metric(
+                    "Measurability",
+                    f"{quality['measurability']}%"
+                )
+
+
+            # ------------------------------------------------
+            # FINAL
+            # ------------------------------------------------
+
+            st.markdown(
+                "### Final Decision"
+            )
+
+            if result[
+                "decision"
+            ] == "APPROVED":
+
+                st.success(
+                    "APPROVED"
+                )
+
+            elif result[
+                "decision"
+            ] == "REJECTED":
+
+                st.error(
+                    "REJECTED"
+                )
+
+            else:
+
+                st.warning(
+                    "NEEDS REVIEW"
+                )
+
+            st.write(
+                result["reason"]
+            )
+
+
+            # ------------------------------------------------
+            # REVISION
+            # ------------------------------------------------
+
+            if result[
+                "decision"
+            ] != "APPROVED":
+
+                matched_clo = None
+
+                if result["clo"]:
+
+                    matched_clo = result[
+                        "clo"
+                    ].get(
+                        "matched"
+                    )
+
+                revised = revision_for_question(
+                    result["question"],
+                    matched_clo,
+                    result[
+                        "entered_bloom"
+                    ]
+                )
+
+                st.markdown(
+                    "### Direct Revision"
+                )
+
+                st.info(
+                    revised
+                )
+
+                st.caption(
+                    "The revision keeps the question focused on "
+                    "the subject content and changes the cognitive "
+                    "operation toward the entered Bloom level. "
+                    "CLO/PLO statements are not inserted into the question."
+                )
+
+
+    # ========================================================
+    # QUESTIONS REQUIRING ACTION
+    # ========================================================
+
+    st.subheader(
+        "7. Questions Requiring Action"
+    )
+
+    action_items = [
+        result
+        for result in results
+        if result[
+            "decision"
+        ] != "APPROVED"
     ]
 
-    if not failed_indices:
+    if action_items:
 
-        st.success(
-            "🎉 All questions currently meet the required alignment criteria."
-        )
+        for result in action_items:
+
+            number = (
+                result["number"]
+                or "?"
+            )
+
+            st.markdown(
+                f"**Question {number} — "
+                f"{result['decision']}**"
+            )
+
+            st.write(
+                result["reason"]
+            )
 
     else:
 
-        selected_index = st.selectbox(
-            "Select a question to revise",
-            failed_indices,
-            format_func=lambda i:
-                f"Question {i + 1}: {results[i]['Question'][:90]}"
+        st.success(
+            "All extracted questions passed the alignment gates."
         )
 
-        selected_row = results[selected_index]
 
-        matched_clo = None
+    # ========================================================
+    # BLOOM DISTRIBUTION
+    # ========================================================
 
-        for clo in data["clos"]:
+    st.subheader(
+        "8. Detected Bloom Distribution"
+    )
 
-            if clo["code"].upper() == str(
-                selected_row["Matched CLO"]
-            ).upper():
+    bloom_counts = Counter()
 
-                matched_clo = clo
-                break
+    for result in results:
 
-        # If the question has no acceptable CLO match,
-        # choose the strongest CLO directly.
-        if matched_clo is None:
+        if result["bloom"]:
 
-            matched_clo, _ = best_outcome(
-                selected_row["Question"],
-                data["clos"]
+            bloom_counts[
+                result["bloom"].get(
+                    "detected",
+                    "Unknown"
+                )
+            ] += 1
+
+    bloom_rows = []
+
+    for level in BLOOM_LEVELS:
+
+        bloom_rows.append(
+            {
+                "Bloom Level": level,
+                "Questions": bloom_counts.get(
+                    level,
+                    0
+                )
+            }
+        )
+
+    bloom_rows.append(
+        {
+            "Bloom Level": "Unknown",
+            "Questions": bloom_counts.get(
+                "Unknown",
+                0
             )
+        }
+    )
 
-        revised_question = make_revision(
-            original_question=selected_row["Question"],
-            clo=matched_clo,
-            selected_bloom=data["selected_bloom"],
-            course_content=data["course_content"]
-        )
+    st.dataframe(
+        pd.DataFrame(
+            bloom_rows
+        ),
+        use_container_width=True,
+        hide_index=True
+    )
 
-        st.text_area(
-            "Revised Question",
-            value=revised_question,
-            height=130,
-            key="revised_question_box"
-        )
 
-        if st.button(
-            "🔍 Test Revised Question",
-            type="primary"
+    # ========================================================
+    # CLO COVERAGE
+    # ========================================================
+
+    st.subheader(
+        "9. CLO Coverage"
+    )
+
+    coverage = Counter()
+
+    for result in results:
+
+        if (
+            result["clo"]
+            and result["clo"].get(
+                "matched"
+            )
         ):
 
-            revised_text = st.session_state.get(
-                "revised_question_box",
-                revised_question
-            )
+            coverage[
+                result[
+                    "clo"
+                ]["matched"]["id"]
+            ] += 1
 
-            revised_evaluation = evaluate_question(
-                question=revised_text,
-                selected_domain=data["detected_domain"],
-                course_content=data["course_content"],
-                clos=data["clos"],
-                plos=data["plos"],
-                selected_bloom=data["selected_bloom"]
-            )
+    coverage_rows = []
 
-            st.session_state.revised_results = {
-                "question": revised_text,
-                "evaluation": revised_evaluation
+    for clo in clos:
+
+        coverage_rows.append(
+            {
+                "CLO": clo["id"],
+                "Questions": coverage.get(
+                    clo["id"],
+                    0
+                ),
+                "Description": clo[
+                    "text"
+                ]
             }
-
-
-    # ========================================================
-    # REVISED RESULT
-    # ========================================================
-
-    if st.session_state.revised_results:
-
-        revised = st.session_state.revised_results
-
-        st.divider()
-
-        st.subheader(
-            "Revised Question Result"
         )
 
-        st.write(
-            f"**Revised Question:** {revised['question']}"
-        )
-
-        evaluation = revised["evaluation"]
-
-        r1, r2, r3, r4 = st.columns(4)
-
-        with r1:
-            st.metric(
-                "Subject",
-                f"{evaluation['Subject Relevance']:.0f}%"
-            )
-
-        with r2:
-            st.metric(
-                "CLO",
-                f"{evaluation['CLO Alignment']:.0f}%"
-            )
-
-        with r3:
-            st.metric(
-                "PLO",
-                f"{evaluation['PLO Alignment']:.0f}%"
-            )
-
-        with r4:
-            st.metric(
-                "Bloom",
-                f"{evaluation['Bloom Alignment']:.0f}%"
-            )
-
-        if evaluation["Alignment Attained"]:
-
-            st.success(
-                "✅ ALIGNMENT ATTAINED"
-            )
-
-            st.write(
-                "The revised question satisfies the required "
-                "subject relevance, CLO alignment and Bloom criteria."
-            )
-
-        else:
-
-            st.warning(
-                "⚠️ Alignment is not yet attained."
-            )
-
-            st.write(
-                evaluation["Reason"]
-            )
-
-        st.write(
-            f"**Detected Bloom:** {evaluation['Detected Bloom']}"
-        )
-
-        st.write(
-            f"**Matched CLO:** {evaluation['Matched CLO']}"
-        )
-
-        st.write(
-            f"**Matched PLO:** {evaluation['Matched PLO']}"
-        )
+    st.dataframe(
+        pd.DataFrame(
+            coverage_rows
+        ),
+        use_container_width=True,
+        hide_index=True
+    )
 
 
     # ========================================================
     # EXPORT
     # ========================================================
 
-    st.divider()
+    st.subheader(
+        "10. Export"
+    )
 
-    export_rows = []
-
-    for index, row in enumerate(results, start=1):
-
-        export_rows.append({
-            "Question Number": index,
-            "Question": row["Question"],
-            "Status": row["Status"],
-            "Alignment Attained": row["Alignment Attained"],
-            "Subject Relevance": row["Subject Relevance"],
-            "CLO Alignment": row["CLO Alignment"],
-            "PLO Alignment": row["PLO Alignment"],
-            "Bloom Alignment": row["Bloom Alignment"],
-            "Quality": row["Quality"],
-            "Detected Bloom": row["Detected Bloom"],
-            "Bloom Verb": row["Bloom Verb"],
-            "Matched CLO": row["Matched CLO"],
-            "Matched PLO": row["Matched PLO"],
-            "Reason": row["Reason"]
-        })
-
-    export_df = pd.DataFrame(
-        export_rows
+    export_df = results_dataframe(
+        results
     )
 
     csv_data = export_df.to_csv(
         index=False
-    ).encode("utf-8")
+    ).encode(
+        "utf-8"
+    )
 
     st.download_button(
-        "⬇️ Download Results CSV",
+        "⬇️ Download Evaluation Results",
         data=csv_data,
-        file_name="obe_alignment_results.csv",
+        file_name=(
+            "OBE_Assessment_Evaluation.csv"
+        ),
         mime="text/csv",
         use_container_width=True
     )
 
 
-    # ========================================================
-    # OCR / FILE INFO
-    # ========================================================
+# ============================================================
+# SIDEBAR
+# ============================================================
 
-    with st.expander(
-        "📄 File Reading Information"
-    ):
+with st.sidebar:
 
-        st.write(
-            data["file_message"]
-        )
+    st.header(
+        "Evaluation Model"
+    )
 
-        st.write(
-            f"Detected {len(questions)} assessment question(s)."
-        )
+    st.markdown(
+        """
+### Evaluation sequence
 
-        if pytesseract is None:
-            st.warning(
-                "Tesseract OCR is not installed. "
-                "Scanned PDFs may not be readable."
-            )
+**1. Read file**
 
-        elif not tesseract_available():
-            st.warning(
-                "Tesseract OCR is unavailable in the current environment."
-            )
+Normal PDF extraction is attempted first.
 
-        else:
-            st.success(
-                "Tesseract OCR is available."
-            )
+**2. OCR fallback**
 
-        st.write(
-            "The evaluator supports MCQs, short questions, "
-            "long questions, numerical questions, analytical questions "
-            "and mixed assessment formats."
-        )
+If the PDF is scanned, OCR is automatically used.
+
+**3. Clean document**
+
+The system removes:
+
+- Page numbers
+- Dates
+- Times
+- Headers
+- Footers
+- QuestionWell metadata
+- Course headings
+- Section headings
+
+**4. Extract genuine questions**
+
+Only substantive assessment questions are evaluated.
+
+**5. Subject gate**
+
+The question must belong to the selected course.
+
+**6. CLO alignment**
+
+The question is compared with the CLO's content and action.
+
+**7. PLO alignment**
+
+The capability demonstrated by the question is compared with the PLO.
+
+**8. Bloom alignment**
+
+The actual cognitive operation is compared with the Bloom level entered.
+
+**9. Final decision**
+
+A strong score in one category cannot compensate for a failed hard gate.
+
+### Decision rules
+
+**APPROVED**
+
+All major alignment gates pass.
+
+**REJECTED**
+
+A major alignment requirement fails.
+
+**NEEDS REVIEW**
+
+Evidence is insufficient for automatic approval.
+
+### Supported assessments
+
+The evaluator is not restricted to MCQs.
+
+It can process:
+
+- MCQs
+- Short-answer questions
+- Essays
+- Numerical problems
+- Case studies
+- True/False
+- Analytical questions
+- Practical questions
+- Problem-solving questions
+"""
+    )
